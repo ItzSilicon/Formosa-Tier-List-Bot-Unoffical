@@ -1,3 +1,7 @@
+# 安裝
+
+[這裡] (https://discord.com/oauth2/authorize?client_id=1406320447343296542) 安裝
+
 # 福爾摩沙 Tier List 機器人 (非官方版)
 
 Formosa Tier List 是一個以亞洲為主、主要成員為台灣玩家的 Minecraft 1.9+ PVP Tier List 社群。本專案是由 ItzSilicon 開發的 **非官方** Discord 機器人，旨在為社群提供便利的 Tier List 查詢功能。
