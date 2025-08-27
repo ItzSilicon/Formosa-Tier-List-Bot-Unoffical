@@ -8,6 +8,7 @@ from discord.ext import commands
 from discord.app_commands import Choice
 from random import choice
 from random import shuffle
+from typing import Callable
 
 load_dotenv()
 render=["default",
@@ -63,6 +64,12 @@ async def search_player(interaction: discord.Interaction,player: str,mode:int):
     6:"CPVP",
     7:"SMP",
     8:"Cart"}
+    print(f"""
+    --- REQUEST ---
+    Request from {interaction.user.name} ({interaction.user.id})
+    Player: {player}
+    Mode: {modes[mode]}
+    """)
     name_changed_message=""
     conn=sqlite3.connect('tier_list_latest.db')
     cursor=conn.cursor()
@@ -71,41 +78,49 @@ async def search_player(interaction: discord.Interaction,player: str,mode:int):
     p2uuid={x[0]:x[1] for x in tmp}
     uuid2p={x[1]:x[0] for x in tmp}
     uuid_db=p2uuid.get(player)
-    print(uuid2p)
-    print(p2uuid)
     if uuid_db:
+        print(f"{player} is in Database")
         if uuid_db.startswith("unknown#"):
+            print(f"{player}'s uuid is unknown, but recorded")
             name_changed_message = "(此玩家名稱及對應的Tier已經不可考)"
         ## uuid is in DB
         else:
+            print(f"{player} may have valid uuid: {uuid_db}")
             response=requests.get(f"https://api.minecraftservices.com/minecraft/profile/lookup/{uuid_db}")
             if response.status_code == 200:
                 ## uuid is available
+                print("UUID is available")
                 player_mojang=response.json()["name"]
                 if player_mojang != player:
+                    print(f"Detect name difference between database and API, so update name to {player_mojang}")
                     cursor.execute("UPDATE players SET player=? WHERE uuid=?",(player_mojang,uuid_db))
                     conn.commit()
                     name_changed_message=f"({player} --> {player_mojang})"
                     player=player_mojang
             elif response.status_code == 404:
+                print("UUID DOES NOT EXIST ??? THIS IS FU*KING IMPOSSIBLE")
                 cursor.execute("DELETE FROM players WHERE uuid=?",(uuid_db,))
                 conn.commit()
                 await interaction.response.send_message(f"(無效的uuid: {player}|{uuid_db}，已移除)")
             
             else:
+                print(f"Network Error: {response.status_code}")
                 await interaction.response.send_message(f"網路錯誤: {response.status_code}",ephemeral=True)
                 return
         uuid=uuid_db
     else:
+        print(f"Player {player} is not in Database")
         #Player not in DB
         response=requests.get(f"https://api.mojang.com/users/profiles/minecraft/{player}")
         if response.status_code == 200:
+            print(f"{player} does exist in Mojang API")
             uuid=response.json()["id"]
             print("UUID:",uuid)
             uuid=uuid.strip("-")
             player=response.json()["name"]
             player_db=uuid2p.get(uuid)
             if player_db:
+                print(f"Player {player} has changed name to {player_db}, so datebase needs to be updated")
                 name_changed_message=f"({player_db} --> {player})"
                 print(f"Player {player_db} name has changed to {player}")
                 cursor.execute("UPDATE players SET player=? WHERE uuid=?",(player,uuid))
@@ -115,9 +130,11 @@ async def search_player(interaction: discord.Interaction,player: str,mode:int):
                 cursor.execute("INSERT INTO players(player,uuid,is_banned,reason) VALUES(?,?,0,NULL)",(player,uuid))
             conn.commit()
         elif response.status_code == 404:
+            print("Player does not exist.")
             await interaction.response.send_message(f"無效的玩家名稱: {player}",ephemeral=True)
             return
         else:
+            print(f"Network Error: {response.status_code}")
             await interaction.response.send_message(f"網路錯誤: {response.status_code}",ephemeral=True)
             return
     player_info=cursor.execute("SELECT is_banned,reason FROM players WHERE uuid=?",(uuid,)).fetchone()
@@ -162,8 +179,14 @@ async def search_player(interaction: discord.Interaction,player: str,mode:int):
     await interaction.response.send_message(embed=embed)  
     conn.close()
         
-    
-
+@app_commands.choices(
+    method=[],
+    options=[]
+)        
+@bot.tree.command(name="statistics", description="Tier List 統計資料")
+async def statistics(interaction: discord.Interaction, method:str, options:str):
+    await interaction.response.send_message("Working on it...",ephemeral=True)
+        
 @search_player.autocomplete("player")
 async def auto_complete_player(interaction: discord.Interaction, current: str):
     conn=sqlite3.connect('tier_list_latest.db')
@@ -179,6 +202,15 @@ async def auto_complete_player(interaction: discord.Interaction, current: str):
         sec=match_-starts_with
         l=sorted(list(starts_with))+sorted(list(sec))
     return [app_commands.Choice(name=x,value=x) for x in l if current.lower() in x.lower()][:25]
+
+
+
+@bot.event
+async def on_command_error(ctx: commands.Context, error: commands.CommandError):
+    if isinstance(error, commands.CommandNotFound):
+        await ctx.message.reply("Command not found")
+    if isinstance(error, commands.CommandError):
+        await ctx.message.reply(str(error))
 
 
 
