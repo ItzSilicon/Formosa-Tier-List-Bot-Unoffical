@@ -64,7 +64,7 @@ async def search_player(interaction: discord.Interaction,player: str,mode:int):
     7:"SMP",
     8:"Cart"}
     name_changed_message=""
-    conn=sqlite3.connect('formosa_pvp_tier_list.db')
+    conn=sqlite3.connect('tier_list_latest.db')
     cursor=conn.cursor()
     cursor.execute("SELECT player,uuid FROM players")
     p2uuid={x[0]:x[1] for x in cursor.fetchall()}
@@ -158,7 +158,7 @@ async def search_player(interaction: discord.Interaction,player: str,mode:int):
 
 @search_player.autocomplete("player")
 async def auto_complete_player(interaction: discord.Interaction, current: str):
-    conn=sqlite3.connect('formosa_pvp_tier_list.db')
+    conn=sqlite3.connect('tier_list_latest.db')
     cursor=conn.cursor()
     cursor.execute("SELECT player FROM players")
     l=[x[0] for x in cursor.fetchall()]
