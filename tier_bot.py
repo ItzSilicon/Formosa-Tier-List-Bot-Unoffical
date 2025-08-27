@@ -67,9 +67,12 @@ async def search_player(interaction: discord.Interaction,player: str,mode:int):
     conn=sqlite3.connect('tier_list_latest.db')
     cursor=conn.cursor()
     cursor.execute("SELECT player,uuid FROM players")
-    p2uuid={x[0]:x[1] for x in cursor.fetchall()}
-    uuid2p={x[1]:x[0] for x in cursor.fetchall()}
+    tmp=cursor.fetchall()
+    p2uuid={x[0]:x[1] for x in tmp}
+    uuid2p={x[1]:x[0] for x in tmp}
     uuid_db=p2uuid.get(player)
+    print(uuid2p)
+    print(p2uuid)
     if uuid_db:
         if uuid_db.startswith("unknown#"):
             name_changed_message = "(此玩家名稱及對應的Tier已經不可考)"
@@ -98,12 +101,17 @@ async def search_player(interaction: discord.Interaction,player: str,mode:int):
         response=requests.get(f"https://api.mojang.com/users/profiles/minecraft/{player}")
         if response.status_code == 200:
             uuid=response.json()["id"]
+            print("UUID:",uuid)
+            uuid=uuid.strip("-")
+            player=response.json()["name"]
             player_db=uuid2p.get(uuid)
             if player_db:
                 name_changed_message=f"({player_db} --> {player})"
+                print(f"Player {player_db} name has changed to {player}")
                 cursor.execute("UPDATE players SET player=? WHERE uuid=?",(player,uuid))
                 
             else:
+                print(f"New player: {player}")
                 cursor.execute("INSERT INTO players(player,uuid,is_banned,reason) VALUES(?,?,0,NULL)",(player,uuid))
             conn.commit()
         elif response.status_code == 404:
