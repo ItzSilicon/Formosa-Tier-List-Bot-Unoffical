@@ -1,6 +1,6 @@
 # 安裝
 
-[這裡] (https://discord.com/oauth2/authorize?client_id=1406320447343296542) 安裝
+- [這裡](https://discord.com/oauth2/authorize?client_id=1406320447343296542) 安裝
 
 # 福爾摩沙 Tier List 機器人 (非官方版)
 
