@@ -75,9 +75,9 @@ async def search_player(interaction: discord.Interaction,player: str,mode:int):
     cursor=conn.cursor()
     cursor.execute("SELECT player,uuid FROM players")
     tmp=cursor.fetchall()
-    p2uuid={x[0]:x[1] for x in tmp}
-    uuid2p={x[1]:x[0] for x in tmp}
-    uuid_db=p2uuid.get(player)
+    p2uuid={x[0].lower():x[1] for x in tmp}
+    uuid2p={x[1]:x[0].lower() for x in tmp}
+    uuid_db=p2uuid.get(player.lower())
     if uuid_db:
         print(f"{player} is in Database")
         if uuid_db.startswith("unknown#"):
@@ -207,10 +207,12 @@ async def statistics(interaction: discord.Interaction, mode:Choice[int], x_axis:
     bf.seek(0)
     if stats:
         stat_dic={
-            f"平均{x_axis.name}":round(stats[0],2), # type: ignore
-            f"{x_axis.name}中位數":stats[1],
-            f"{x_axis.name}眾數":stats[2],
-            f"標準差":round(stats[3],2), # type: ignore
+            f"總筆數":stats[0],
+            f"總人數":stats[1],
+            f"平均{x_axis.name}":stats[2], # type: ignore
+            f"{x_axis.name}中位數":stats[3],
+            f"{x_axis.name}眾數":stats[4],
+            f"標準差":stats[5], # type: ignore
         }
         for k,v in stat_dic.items():
             embed.add_field(name=k,value=v)

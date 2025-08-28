@@ -52,6 +52,8 @@ def tier_list_count_by_tier(mode_id,x_axis):
             data.append(n_tier)
     
     if data:
+        total=len(data)
+        player_count=len(set([x[0] for x in tier_list_sql]))
         mean=statistics.mean(data)
         median=statistics.median(data)
         mode=statistics.mode(data)
@@ -61,16 +63,27 @@ def tier_list_count_by_tier(mode_id,x_axis):
     tier_list=pd.DataFrame(tier_list_sql)
     print(tier_list)
     tier_list.columns=["玩家","模式","MTier","STier","Tier","正規化點數","正規化Tier"]
-    plt.figure(figsize=(10, 5),dpi=300,)
-    ax=sb.countplot(data=tier_list, x=x_axis, hue='模式', y=None,saturation=1)
+    plt.figure(figsize=(16,9),dpi=600)
+    if x_axis=="正規化點數" or x_axis=="正規化Tier":
+        fig, (ax, ax2) = plt.subplots(2, 1, figsize=(16, 16))
+    else:
+        ax=None
+    ax=sb.countplot(data=tier_list, x=x_axis, hue='模式', y=None,saturation=1,ax=ax)
     ax.set_ylabel("人數",fontsize=12)
+    ax.set_title("Tier List 人數統計長條圖 | 以Tier分類 | "+x_axis+" | "+modes[mode_id],fontsize=16)
+    if x_axis=="正規化點數" or x_axis=="正規化Tier":
+        ax2=sb.boxenplot(data=tier_list, x=x_axis,y='模式', hue='模式',saturation=1,ax=ax2,k_depth='full')
+        ax2.set_title("Tier List 人數統計高階箱型圖 | 以Tier分類 | "+x_axis+" | "+modes[mode_id],fontsize=16)
+        plt.tight_layout()
     bf=io.BytesIO()
     plt.savefig(bf)
     plt.close()
     if data:
-        stats=[mean,median,mode,stdev]
+        stats=[total,player_count,mean,median,mode,stdev]
         for i in range(len(stats)):
-            stats[i]=round(stats[i],2) # type: ignore
+            if type(stats[i]) is int:
+                continue
+            stats[i]=round(stats[i],4) # type: ignore
     else:
         stats=None
     return bf,stats
