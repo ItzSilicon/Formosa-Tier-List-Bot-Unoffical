@@ -3,3 +3,4 @@
 tier_list_latest.db
 /.vscode
 tier_list_latest.db-journal
+/__pycache__

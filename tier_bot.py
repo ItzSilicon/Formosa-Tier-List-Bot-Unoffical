@@ -8,7 +8,7 @@ from discord.ext import commands
 from discord.app_commands import Choice
 from random import choice
 from random import shuffle
-from typing import Callable
+import stat_method
 
 load_dotenv()
 render=["default",
@@ -179,13 +179,43 @@ async def search_player(interaction: discord.Interaction,player: str,mode:int):
     await interaction.response.send_message(embed=embed)  
     conn.close()
         
+
+@app_commands.describe(mode="模式",x_axis="統計對象")
+@bot.tree.command(name="statistics_count_by_tier", description="各等級之人數之統計") 
 @app_commands.choices(
-    method=[],
-    options=[]
-)        
-@bot.tree.command(name="statistics", description="Tier List 統計資料")
-async def statistics(interaction: discord.Interaction, method:str, options:str):
-    await interaction.response.send_message("Working on it...",ephemeral=True)
+    mode = [
+    Choice(name="Overall", value=0),
+    Choice(name="Sword", value=1),
+    Choice(name="UHC", value=2),
+    Choice(name="Axe", value=3),
+    Choice(name="NPot", value=4),
+    Choice(name="DPot",value=5),
+    Choice(name="CPVP",value=6),
+    Choice(name="SMP",value=7),
+    Choice(name="Cart",value=8),
+    ],
+    x_axis=[
+    Choice(name="Tier",value="Tier"),
+    Choice(name="大約正規化點數",value="正規化點數"),
+    Choice(name="大約正規化Tier",value="正規化Tier"),
+    ] # type: ignore
+)
+async def statistics(interaction: discord.Interaction, mode:Choice[int], x_axis:Choice[str]):
+    bf,stats=stat_method.tier_list_count_by_tier(mode.value, x_axis.value)
+    embed=discord.Embed(title=f"Tier List 統計 | 以模式分類 | {x_axis.name} | {mode.name}",)
+    embed.set_image(url="attachment://plot.png")
+    bf.seek(0)
+    if stats:
+        stat_dic={
+            f"平均{x_axis.name}":round(stats[0],2), # type: ignore
+            f"{x_axis.name}中位數":stats[1],
+            f"{x_axis.name}眾數":stats[2],
+            f"標準差":round(stats[3],2), # type: ignore
+        }
+        for k,v in stat_dic.items():
+            embed.add_field(name=k,value=v)
+    await interaction.response.send_message(embed=embed,file=discord.File(fp=bf,filename="plot.png"))
+    
         
 @search_player.autocomplete("player")
 async def auto_complete_player(interaction: discord.Interaction, current: str):
