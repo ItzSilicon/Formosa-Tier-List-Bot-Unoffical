@@ -32,6 +32,7 @@ def tier_list_count_by_tier(mode_id,x_axis):
         JOIN players ON tier_list.uuid=players.uuid
         JOIN mode ON tier_list.mode_id=mode.mode_id
         JOIN tier_table ON tier_list.tier_id=tier_table.tier_id
+        WHERE tier_list.mode_id<8
         ORDER BY tier_list.tier_id
         """
     cursor.execute(sql)
@@ -61,7 +62,6 @@ def tier_list_count_by_tier(mode_id,x_axis):
 
         
     tier_list=pd.DataFrame(tier_list_sql)
-    print(tier_list)
     tier_list.columns=["玩家","模式","MTier","STier","Tier","正規化點數","正規化Tier"]
     plt.figure(figsize=(16,9),dpi=600)
     if x_axis=="正規化點數" or x_axis=="正規化Tier":
@@ -88,3 +88,83 @@ def tier_list_count_by_tier(mode_id,x_axis):
         stats=None
     return bf,stats
 
+def fetch_overall_rank(player=None):
+    conn=sqlite3.connect("tier_list_latest.db")
+    cursor=conn.cursor()
+    sql=f"""
+    SELECT player,mode.short,tier_table.tier, tier_table.class_id ,tier_table.short FROM tier_list
+    JOIN players ON tier_list.uuid=players.uuid
+    JOIN mode ON tier_list.mode_id=mode.mode_id
+    JOIN tier_table ON tier_list.tier_id=tier_table.tier_id
+    WHERE tier_list.mode_id<8
+    ORDER BY tier_list.tier_id
+    """
+    cursor.execute(sql)
+    tier_list_sql=cursor.fetchall()
+    conn.close()
+    data={x[0]:0 for x in tier_list_sql}
+    for i,j in enumerate(tier_list_sql):
+        base=5-j[2]
+        mult=0.33 if j[2]==3 else 0.5
+        point=round(base+mult*(j[3]),2)
+        data[j[0]]+=point
+    data_tmp=sorted(data.items(),key=lambda x:x[1],reverse=True)
+    data_dict={}
+    ptr=1
+    for i,j in enumerate(data_tmp):
+        if data_tmp[i-1][1]!=j[1]:
+            rank=i+1
+            ptr=rank
+        else:
+            rank=ptr
+        data_dict[j[0]]=rank
+    if player:
+        return data_dict.get(player)
+    else:
+        return data_dict
+    
+    
+def fetch_core_rank(player=None):
+    conn=sqlite3.connect("tier_list_latest.db")
+    cursor=conn.cursor()
+    sql=f"""
+    SELECT player,mode.short,tier_table.tier, tier_table.class_id ,tier_table.short FROM tier_list
+    JOIN players ON tier_list.uuid=players.uuid
+    JOIN mode ON tier_list.mode_id=mode.mode_id
+    JOIN tier_table ON tier_list.tier_id=tier_table.tier_id
+    WHERE tier_list.mode_id<5 OR tier_list.mode_id=6
+    ORDER BY tier_list.tier_id
+    """
+    cursor.execute(sql)
+    tier_list_sql=cursor.fetchall()
+    conn.close()
+    data={x[0]:0 for x in tier_list_sql}
+    for i,j in enumerate(tier_list_sql):
+        base=5-j[2]
+        mult=0.33 if j[2]==3 else 0.5
+        point=round(base+mult*(j[3]),2)
+        if j[4]:
+            point*=0.75
+        data[j[0]]+=point
+    data_tmp=sorted(data.items(),key=lambda x:x[1],reverse=True)
+    data_dict={}
+    ptr=1
+    for i,j in enumerate(data_tmp):
+        if data_tmp[i-1][1]!=j[1]:
+            rank=i+1
+            ptr=rank
+        else:
+            rank=ptr
+        data_dict[j[0]]=rank
+    if player:
+        return data_dict.get(player)
+    else:
+        return data_dict
+
+def get_player_amount_in_list():
+    conn=sqlite3.connect("tier_list_latest.db")
+    cursor=conn.cursor()
+    cursor.execute("SELECT uuid FROM tier_list")
+    l=[x[0] for x in cursor.fetchall()]
+    conn.close()
+    return len(set(l))

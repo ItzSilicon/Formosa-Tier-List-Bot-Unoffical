@@ -10,6 +10,8 @@ from random import choice
 from random import shuffle
 from random import random as rd
 import stat_method
+from stat_method import fetch_overall_rank
+from stat_method import fetch_core_rank
 
 load_dotenv()
 render=["default",
@@ -152,21 +154,26 @@ async def search_player(interaction: discord.Interaction,player: str,mode:int):
     JOIN players ON tier_list.uuid = players.uuid
     WHERE players.uuid= ? ORDER BY tier_list.mode_id""",(uuid,))
     lst=cursor.fetchall()
+    conn.close()
     dsc=""
     embed=discord.Embed()
-    player=player.replace("_","\\_")
+    player_display=player.replace("_","\\_")
     name_changed_message=name_changed_message.replace("_","\\_")
     embed.add_field(name="UUID",value=uuid,inline=False)
     if player_info[0]:
-        title=f"{player} {name_changed_message}  |  Banned, Reason: {player_info[1]}"
-    elif len(lst)==1:
+        title=f"{player_display} {name_changed_message}  |  Banned, Reason: {player_info[1]}"
+    elif mode!=0 and lst:
         is_retired=lst[0][4]
-        title=f"{player} {name_changed_message}  |  {lst[0][1]} {lst[0][2]} {" Retired" if is_retired else ""}"
+        title=f"{player_display} {name_changed_message}  |  {lst[0][1]} {lst[0][2]} {" Retired" if is_retired else ""}"
     elif not lst:
-        title=f"{player} {name_changed_message}  |  {modes.get(mode)}"
-        dsc+=f"**{player} 沒有得到任何Tier**"
+        title=f"{player_display} {name_changed_message}  |  {modes.get(mode)}"
+        dsc+=f"**{player_display} 沒有得到任何Tier**"
     else:
-        title=f"{player} {name_changed_message}"
+        title=f"{player_display} {name_changed_message}"
+        embed.add_field(name="排名 (Overall)",value=f"# {fetch_overall_rank(player)}")
+        core_rank=fetch_core_rank(player)
+        if core_rank:
+            embed.add_field(name="核心模式排名 (Core)",value=f"# {core_rank}")
         for i in lst:
             is_retired=i[4]
             tmp=" Retired" if is_retired else ""
@@ -178,11 +185,11 @@ async def search_player(interaction: discord.Interaction,player: str,mode:int):
     embed.set_footer(text="Powered by Lunar Eclipse Render API")
     embed.description=dsc
     if interaction.guild_id!=990378958501584916 and rd()>0.7:
-        embed.add_field(name="你是 Minecraft 高版本PVP玩家嗎?",value="快加入 [福爾摩沙 Tier List Discord Server](https://discord.gg/hamescZvtP) 證明你的實力吧!")
+        embed.add_field(name="你是 Minecraft 高版本PVP玩家嗎?",value="快加入 [福爾摩沙 Tier List Discord Server](https://discord.gg/hamescZvtP) 證明你的實力吧!",inline=False)
         await interaction.response.send_message(embed=embed,content="[᠌](https://discord.gg/hamescZvtP)")
     else:
         await interaction.response.send_message(embed=embed)
-    conn.close()
+
         
 
 @app_commands.describe(mode="模式",x_axis="統計對象")
@@ -222,8 +229,31 @@ async def statistics(interaction: discord.Interaction, mode:Choice[int], x_axis:
         for k,v in stat_dic.items():
             embed.add_field(name=k,value=v)
     await interaction.response.send_message(embed=embed,file=discord.File(fp=bf,filename="plot.png"))
-    
-        
+
+@app_commands.describe(rang="模式涵蓋範圍",page="範圍")
+@bot.tree.command(name="rank", description="顯示排名") 
+@app_commands.choices(
+    rang=[
+        Choice(name="Overall",value=0),
+        Choice(name="Core",value=1)
+    ],
+    page=[Choice(name=f"{x*20+1} - {min(x*20+20,stat_method.get_player_amount_in_list())}",value=x) 
+          for x in range(0,stat_method.get_player_amount_in_list()//20)]
+)
+async def rank(interaction: discord.Interaction, rang:Choice[int], page:Choice[int]):
+    if rang.value:
+        rank_list=fetch_core_rank()
+    else:
+        rank_list=fetch_overall_rank()
+    r=range(page.value*20,min(page.value*20+20,stat_method.get_player_amount_in_list()))
+    embed=discord.Embed(title=f"Tier List 排名 | {rang.name} | # {page.name}")
+    rank_list_items=list(rank_list.items()) # type: ignore
+    for i in r:
+        embed.add_field(name=f"# {rank_list_items[i][1]}",value=rank_list_items[i][0].replace('_','\\_'),inline=False)
+    await interaction.response.send_message(embed=embed)
+
+
+
 @search_player.autocomplete("player")
 async def auto_complete_player(interaction: discord.Interaction, current: str):
     conn=sqlite3.connect('tier_list_latest.db')
