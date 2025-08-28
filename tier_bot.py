@@ -8,6 +8,7 @@ from discord.ext import commands
 from discord.app_commands import Choice
 from random import choice
 from random import shuffle
+from random import random as rd
 import stat_method
 
 load_dotenv()
@@ -169,14 +170,18 @@ async def search_player(interaction: discord.Interaction,player: str,mode:int):
         for i in lst:
             is_retired=i[4]
             tmp=" Retired" if is_retired else ""
-            embed.add_field(name=i[1],value=i[2]+tmp,inline=True)   
-    embed.set_image(url=f"https://starlightskins.lunareclipse.studio/render/{choice(render)}/{uuid}/full")
+            embed.add_field(name=i[1],value=i[2]+tmp,inline=True)
+    embed.set_image(url=f"https://starlightskins.lunareclipse.studio/render/{choice(render)}/{uuid}/full?borderHighlight=true&borderHighlightRadius=20&dropShadow=true")
     embed.set_thumbnail(url=f"https://mc-heads.net/head/{uuid}/left")
     # response=requests.get(f"https://starlightskins.lunareclipse.studio/render/marching/{uuid}/full")
+    embed.title=title
     embed.set_footer(text="Powered by Lunar Eclipse Render API")
     embed.description=dsc
-    embed.title=title
-    await interaction.response.send_message(embed=embed)  
+    if interaction.guild_id!=990378958501584916 and rd()>0.7:
+        embed.add_field(name="你是 Minecraft 高版本PVP玩家嗎?",value="快加入 [福爾摩沙 Tier List Discord Server](https://discord.gg/hamescZvtP) 證明你的實力吧!")
+        await interaction.response.send_message(embed=embed,content="[᠌](https://discord.gg/hamescZvtP)")
+    else:
+        await interaction.response.send_message(embed=embed)
     conn.close()
         
 
