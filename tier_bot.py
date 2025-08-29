@@ -26,12 +26,11 @@ render=["default",
         "lunging",
         "dungeons",
         "archer",
-        "reading",
-        "clown"]
+        "reading"]
 
 
 intents = discord.Intents.default()
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents,owner_id=1110595121591898132)
 
 @bot.event
 async def on_ready():
@@ -41,6 +40,12 @@ async def on_ready():
         print(f"Synced {len(synced)} slash commands")
     except Exception as e:
         print(f"Sync failed: {e}")
+        
+    with open("message_to_restore.txt", "r") as f:
+        channel_id,msg_id=f.read().split("\n")
+        channel = await bot.fetch_channel(int(channel_id))
+        msg = await channel.fetch_message(int(msg_id)) # type: ignore
+        await msg.edit(embed=discord.Embed(title="機器人重啟成功",description="可以繼續使用"))
 
 
 
@@ -140,9 +145,10 @@ async def search_player(interaction: discord.Interaction,player: str,mode:int):
             print(f"Network Error: {response.status_code}")
             await interaction.response.send_message(f"網路錯誤: {response.status_code}",ephemeral=True)
             return
-    player_info=cursor.execute("SELECT is_banned,reason FROM players WHERE uuid=?",(uuid,)).fetchone()
+    player_info=cursor.execute("SELECT is_banned,reason,intro FROM players WHERE uuid=?",(uuid,)).fetchone()
+    print(player_info)
     if mode:
-        cursor.execute("""SELECT players.player,mode.short AS MODE ,tier_table.short as TIER, players.uuid, tier_list.is_retired, players.is_banned,players.reason FROM tier_list
+        cursor.execute("""SELECT players.player,mode.short AS MODE ,tier_table.short as TIER, players.uuid, tier_list.is_retired FROM tier_list
     JOIN mode ON tier_list.mode_id=mode.mode_id
     JOIN tier_table ON tier_list.tier_id = tier_table.tier_id
     JOIN players ON tier_list.uuid = players.uuid
@@ -160,11 +166,13 @@ async def search_player(interaction: discord.Interaction,player: str,mode:int):
     player_display=player.replace("_","\\_")
     name_changed_message=name_changed_message.replace("_","\\_")
     embed.add_field(name="UUID",value=uuid,inline=False)
+    if player_info[2]:
+        embed.add_field(name="介紹",value=player_info[2],inline=False)
     if player_info[0]:
         title=f"{player_display} {name_changed_message}  |  Banned, Reason: {player_info[1]}"
     elif mode!=0 and lst:
         is_retired=lst[0][4]
-        title=f"{player_display} {name_changed_message}  |  {lst[0][1]} {lst[0][2]} {" Retired" if is_retired else ""}"
+        title=f"{player_display} {name_changed_message}  |  {lst[0][1]} {"R" if is_retired else ""}{lst[0][2]} "
     elif not lst:
         title=f"{player_display} {name_changed_message}  |  {modes.get(mode)}"
         dsc+=f"**{player_display} 沒有得到任何Tier**"
@@ -176,9 +184,9 @@ async def search_player(interaction: discord.Interaction,player: str,mode:int):
             embed.add_field(name="核心模式排名 (Core)",value=f"# {core_rank}")
         for i in lst:
             is_retired=i[4]
-            tmp=" Retired" if is_retired else ""
-            embed.add_field(name=i[1],value=i[2]+tmp,inline=True)
-    embed.set_image(url=f"https://starlightskins.lunareclipse.studio/render/{choice(render)}/{uuid}/full?borderHighlight=true&borderHighlightRadius=20&dropShadow=true")
+            tmp="R" if is_retired else ""
+            embed.add_field(name=i[1],value=tmp+i[2],inline=True)
+    embed.set_image(url=f"https://starlightskins.lunareclipse.studio/render/{choice(render)}/{uuid}/full?borderHighlight=true&borderHighlightRadius=5&dropShadow=true")
     embed.set_thumbnail(url=f"https://mc-heads.net/head/{uuid}/left")
     # response=requests.get(f"https://starlightskins.lunareclipse.studio/render/marching/{uuid}/full")
     embed.title=title
@@ -212,7 +220,7 @@ async def search_player(interaction: discord.Interaction,player: str,mode:int):
     Choice(name="大約正規化Tier",value="正規化Tier"),
     ] # type: ignore
 )
-async def statistics(interaction: discord.Interaction, mode:Choice[int], x_axis:Choice[str]):
+async def point_statistics(interaction: discord.Interaction, mode:Choice[int], x_axis:Choice[str]):
     bf,stats=stat_method.tier_list_count_by_tier(mode.value, x_axis.value)
     embed=discord.Embed(title=f"Tier List 統計 | 以模式分類 | {x_axis.name} | {mode.name}",)
     embed.set_image(url="attachment://plot.png")
@@ -252,7 +260,34 @@ async def rank(interaction: discord.Interaction, rang:Choice[int], page:Choice[i
         embed.add_field(name=f"# {rank_list_items[i][1]}",value=rank_list_items[i][0].replace('_','\\_'),inline=False)
     await interaction.response.send_message(embed=embed)
 
+@bot.tree.command(name="statistics_point", description="積分統計長條圖") 
+async def statistics(interaction: discord.Interaction):
+    bf,stats=stat_method.overall_point_stat()
+    embed=discord.Embed(title=f"Tier List 積分統計長條圖",)
+    embed.set_image(url="attachment://plot.png")
+    bf.seek(0)
+    if stats:
+        stat_dic={
+            f"總人數":stats[0],
+            f"平均積分":stats[1], # type: ignore
+            f"中位數":stats[2],
+            f"標準差":stats[4], # type: ignore
+        }
+        for k,v in stat_dic.items():
+            embed.add_field(name=k,value=v)
+    await interaction.response.send_message(embed=embed,file=discord.File(fp=bf,filename="plot.png"))
 
+@bot.tree.command(name="kill", description="重啟機器人") 
+async def kill(interaction: discord.Interaction):
+    if interaction.user.id==bot.owner_id:
+        fallback = await interaction.response.send_message(embed=discord.Embed(title="機器人重啟",description="請稍後..."))
+        msg=fallback.message_id
+        with open("message_to_restore.txt", "w") as f:
+            f.write(f"{interaction.channel_id}\n{msg}") # type: ignore
+        exit(0)
+    else:
+        print(f"{interaction.user.name} ({interaction.user.id}) tried to kill the bot, but he is not the owner")
+        await interaction.response.send_message(embed=discord.Embed(title="你沒有權限重啟機器人",description="只有開發者可以重啟"),ephemeral=True)
 
 @search_player.autocomplete("player")
 async def auto_complete_player(interaction: discord.Interaction, current: str):
