@@ -37,7 +37,7 @@ def tier_list_count_by_tier(mode_id,x_axis):
         JOIN players ON tier_list.uuid=players.uuid
         JOIN mode ON tier_list.mode_id=mode.mode_id
         JOIN tier_table ON tier_list.tier_id=tier_table.tier_id
-        WHERE mode.mode_id = {mode_id}
+        WHERE mode.mode_id = {mode_id} AND player != 'ItzMyGO'
         ORDER BY tier_list.tier_id
         """
     else:
@@ -46,7 +46,7 @@ def tier_list_count_by_tier(mode_id,x_axis):
         JOIN players ON tier_list.uuid=players.uuid
         JOIN mode ON tier_list.mode_id=mode.mode_id
         JOIN tier_table ON tier_list.tier_id=tier_table.tier_id
-        WHERE tier_list.mode_id<8
+        WHERE tier_list.mode_id<8 AND player != 'ItzMyGO'
         ORDER BY tier_list.tier_id
         """
     cursor.execute(sql)
@@ -103,6 +103,8 @@ def tier_list_count_by_tier(mode_id,x_axis):
     return bf,stats
 
 def fetch_overall_rank(player=None):
+    if player == 'ItzMyGO':
+        return None
     conn=sqlite3.connect("tier_list_latest.db")
     cursor=conn.cursor()
     sql=f"""
@@ -110,7 +112,7 @@ def fetch_overall_rank(player=None):
     JOIN players ON tier_list.uuid=players.uuid
     JOIN mode ON tier_list.mode_id=mode.mode_id
     JOIN tier_table ON tier_list.tier_id=tier_table.tier_id
-    WHERE tier_list.mode_id<8
+    WHERE tier_list.mode_id<8 AND player != 'ItzMyGO'
     ORDER BY tier_list.tier_id
     """
     cursor.execute(sql)
@@ -139,6 +141,8 @@ def fetch_overall_rank(player=None):
     
     
 def fetch_core_rank(player=None):
+    if player == 'ItzMyGO':
+        return None
     conn=sqlite3.connect("tier_list_latest.db")
     cursor=conn.cursor()
     sql=f"""
@@ -146,7 +150,7 @@ def fetch_core_rank(player=None):
     JOIN players ON tier_list.uuid=players.uuid
     JOIN mode ON tier_list.mode_id=mode.mode_id
     JOIN tier_table ON tier_list.tier_id=tier_table.tier_id
-    WHERE tier_list.mode_id<5 OR tier_list.mode_id=6
+    WHERE (tier_list.mode_id<5 OR tier_list.mode_id=6) AND player != 'ItzMyGO'
     ORDER BY tier_list.tier_id
     """
     cursor.execute(sql)
@@ -154,8 +158,6 @@ def fetch_core_rank(player=None):
     conn.close()
     data={x[0]:0 for x in tier_list_sql}
     for i,j in enumerate(tier_list_sql):
-        base=5-j[2]
-        mult=0.33 if j[2]==3 else 0.5
         point=tier_point_table.get(j[4])
         if not point:
             continue
@@ -178,7 +180,7 @@ def fetch_core_rank(player=None):
 def get_player_amount_in_list():
     conn=sqlite3.connect("tier_list_latest.db")
     cursor=conn.cursor()
-    cursor.execute("SELECT uuid FROM tier_list")
+    cursor.execute("SELECT uuid FROM tier_list WHERE uuid != '483746df4ad44f84ab3bddcf5ccfd205'")
     l=[x[0] for x in cursor.fetchall()]
     conn.close()
     return len(set(l))
@@ -194,7 +196,7 @@ def overall_point_stat():
         JOIN players ON tier_list.uuid=players.uuid
         JOIN mode ON tier_list.mode_id=mode.mode_id
         JOIN tier_table ON tier_list.tier_id=tier_table.tier_id
-        WHERE tier_list.mode_id<8
+        WHERE tier_list.mode_id<8 AND player != 'ItzMyGO'
         ORDER BY tier_list.tier_id
         """
     cursor.execute(sql)

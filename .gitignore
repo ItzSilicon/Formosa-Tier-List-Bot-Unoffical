@@ -6,3 +6,5 @@ tier_list_latest.db-journal
 /__pycache__
 /.venv
 message_to_restore.txt
+ollama_test.py 
+my_document.md
