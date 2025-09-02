@@ -1,3 +1,4 @@
+import random
 import sqlite3
 import requests
 import os
@@ -12,6 +13,7 @@ from random import random as rd
 import stat_method
 from stat_method import fetch_overall_rank
 from stat_method import fetch_core_rank
+from tabulate import tabulate
 
 load_dotenv()
 render=["default",
@@ -288,7 +290,7 @@ async def statistics(interaction: discord.Interaction):
             embed.add_field(name=k,value=v)
     await interaction.response.send_message(embed=embed,file=discord.File(fp=bf,filename="plot.png"))
 
-@bot.tree.command(name="kill", description="重啟機器人") 
+@bot.tree.command(name="kill", description="重啟機器人 | 只有開發者可以使用") 
 async def kill(interaction: discord.Interaction):
     if interaction.user.id==bot.owner_id:
         fallback = await interaction.response.send_message(embed=discord.Embed(title="機器人重啟",description="請稍後..."))
@@ -300,7 +302,8 @@ async def kill(interaction: discord.Interaction):
         print(f"{interaction.user.name} ({interaction.user.id}) tried to kill the bot, but he is not the owner")
         await interaction.response.send_message(embed=discord.Embed(title="你沒有權限重啟機器人",description="只有開發者可以重啟"),ephemeral=True)
 
-@bot.tree.command(name="update_tier", description="更新玩家Tier資料")
+@bot.tree.command(name="update_tier", description="更新玩家Tier資料 | 只有開發者可以使用")
+@app_commands.describe(player="玩家名稱",mode="遊戲模式",tier="Tier,表示移除",is_retired="是否退役")
 @app_commands.choices(
     mode = [
     Choice(name="Sword", value=1),
@@ -324,6 +327,7 @@ async def kill(interaction: discord.Interaction):
         Choice(name="LT4",value=42),
         Choice(name="HT5",value=51),
         Choice(name="LT5",value=52),
+        Choice(name="None",value=0),
         ]
 )
 async def update_tier(interaction: discord.Interaction,player:str,mode:Choice[int],tier:Choice[int],is_retired:bool=False):
@@ -337,12 +341,9 @@ async def update_tier(interaction: discord.Interaction,player:str,mode:Choice[in
             else:
                 await interaction.response.send_message("找不到此玩家",ephemeral=True)
                 return
-            cursor.execute("SELECT mode_id FROM tier_list WHERE uuid=?",(uuid,))
-            modes=cursor.fetchone()
-            if not modes or mode.value not in modes:
+            cursor.execute("DELETE FROM tier_list WHERE uuid=? AND mode_id=?",(uuid,mode.value))
+            if tier:
                 cursor.execute("INSERT INTO tier_list(uuid,mode_id,tier_id,is_retired) VALUES(?,?,?,?)",(uuid,mode.value,tier.value,is_retired))
-            else:
-                cursor.execute("UPDATE tier_list SET tier_id=?,is_retired=? WHERE uuid=? AND mode_id=?",(tier.value,is_retired,uuid,mode.value))
             conn.commit()
         await interaction.response.send_message(embed=discord.Embed(title="更新成功",description=f"已將 {player} ({uuid}) {mode.name} 項目的 Tier 更改為 {tier.name}"))
     else:
@@ -366,7 +367,7 @@ async def auto_complete_player(interaction: discord.Interaction, current: str):
         l=sorted(list(starts_with))+sorted(list(sec))
     return [app_commands.Choice(name=x,value=x) for x in l if current.lower() in x.lower()][:25]
 
-@bot.tree.command(name="sql_query_select", description="SQL查詢 (僅限SELECT)")
+@bot.tree.command(name="sql_query_select", description="SQL查詢 (僅限SELECT) ")
 @app_commands.describe(script="SQL查詢語法，僅限SELECT，切分至第一個分號為止")
 async def query(interaction: discord.Interaction,script:str):
     if not script.startswith("SELECT"):
@@ -384,19 +385,89 @@ async def query(interaction: discord.Interaction,script:str):
             await interaction.response.send_message("SQL語法錯誤",ephemeral=True)
             return
         cursor.execute(script)
+        column_headers = [desc[0] for desc in cursor.description]
         l=cursor.fetchall()
     display=f"查詢語法:\n```sql\n{script}```\n結果:\n```"
-    for i in l:
-        for j in i:
-            display+=f"{j}\t"
-        display+="\n"
+    display+=tabulate(l,headers=column_headers)
     display+="```"
-    if len(display)>750:
+    if len(display)>1500:
         await interaction.response.send_message("輸出長度過長 (請使用 LIMIT 或 WHERE 限定條件)",ephemeral=True)
         return
     await interaction.response.send_message(display)
-    
-    
+
+@bot.tree.command(name="play_pvp_server",description="列出可玩的 1.9 PVP伺服器")
+@app_commands.choices(
+    ping_range=[
+        Choice(name="極低延遲 - 超爽!",value="極低延遲"),
+        Choice(name="低延遲 - 打起來不卡，手感up up!",value="低延遲"),
+        Choice(name="中等延遲 - 國際等級延遲，和世界各地玩家一起PVP",value="中等延遲"),
+        Choice(name="中等延遲以上 - 國外大型伺服器，模式更多、玩法更廣",value="中等延遲以上"),
+        Choice(name="不分延遲 - 比起延遲我更喜歡 看~心~情~",value="不分延遲"),
+    ]
+)
+async def play_server(interaction: discord.Interaction, ping_range:Choice[str]):
+    await interaction.response.defer() 
+    conn=sqlite3.connect('tier_list_latest.db')
+    cursor=conn.cursor()
+    cursor.execute("SELECT * FROM server WHERE server_id=1")
+    must=cursor.fetchone()
+    if ping_range.value=="不分延遲":
+        cursor.execute("SELECT * FROM server WHERE server_id>1")
+    else:
+        cursor.execute("SELECT * FROM server WHERE ping_range=? AND server_id!=1",(ping_range.value,))
+    result=cursor.fetchall()
+    print(tabulate(result))
+    conn.close()
+    random.shuffle(result)
+    recommand=result[:2]
+    recommand.insert(0,must)
+    print(tabulate(recommand))
+    embeds=[]
+    for i,j in enumerate(recommand):
+        embed=discord.Embed()
+        if i==0:
+            embed.color=discord.Color.gold()
+        else:
+            embed.color=discord.Color.blue()
+        if i==0:
+            embed.title=f":fire: {j[1]} :fire: (強力推薦!!!)"
+        else:
+            embed.title=j[1]+" - "+j[4]
+        embed.add_field(name="IP",value=j[3])
+        embed.add_field(name="地區",value=j[2])
+        embed.set_thumbnail(url=f"https://sr-api.sfirew.com/server/{j[3]}/icon.png")
+        embed.add_field(name="介紹",value=j[5],inline=False)
+        embed.set_image(url=f'https://sr-api.sfirew.com/server/{j[3]}/banner/motd.png')
+        response=requests.get(f"https://sr-api.sfirew.com/server/{j[3]}")
+        if response.status_code==200:
+            data=response.json()
+            if data["online"]:
+                embed.add_field(name="狀態",value="🟢在線")
+                embed.add_field(name="Ping (台北)",value=f"{data.get('ping')} ms")
+                embed.add_field(name="在線人數",value=data.get('players').get('online'))
+                embed.add_field(name="版本",value=data.get('version').get("raw"))
+            else:
+                embed.add_field(name="狀態",value="🔴離線")
+        embeds.append(embed)
+    print([x.title for x in embeds])
+    await interaction.followup.send(embeds=embeds)
+        
+
+# @play_server.autocomplete("mode")
+# async def auto_complete_mode(interaction: discord.Interaction, current: str):
+#     conn=sqlite3.connect('tier_list_latest.db')
+#     cursor=conn.cursor()
+#     cursor.execute("SELECT zh_tw FROM mode")
+#     l=[x[0] for x in cursor.fetchall()]
+#     conn.close()
+#     if current == "":
+#         shuffle(l)
+#     else:
+#         match_=set([x for x in l if current.lower() in x.lower()])
+#         starts_with=set([x for x in l if [x.lower()][0].startswith(current.lower())])
+#         sec=match_-starts_with
+#         l=sorted(list(starts_with))+sorted(list(sec))
+#     return [app_commands.Choice(name=x,value=x) for x in l if current.lower() in x.lower()][:25]
 
 
 
