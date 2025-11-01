@@ -5,7 +5,11 @@ tier_list_latest.db
 tier_list_latest.db-journal
 /__pycache__
 /.venv
+/venv
 message_to_restore.txt
 ollama_test.py 
 my_document.md
 test.py
+latest.log
+test.db
+tier_list_latest_old

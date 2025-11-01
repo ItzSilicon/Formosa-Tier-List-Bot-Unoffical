@@ -4,7 +4,11 @@ import seaborn as sb
 import matplotlib.pyplot as plt
 import io
 import statistics
-plt.rcParams['font.sans-serif']=['Taipei Sans TC Beta']
+import logging
+
+
+
+plt.rcParams['font.sans-serif']=['Noto Serif CJK JP']
 
 tier_point_table={
     "HT1":60,

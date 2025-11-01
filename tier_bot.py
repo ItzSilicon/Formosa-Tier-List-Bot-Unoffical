@@ -14,6 +14,30 @@ import stat_method
 from stat_method import fetch_overall_rank
 from stat_method import fetch_core_rank
 from tabulate import tabulate
+import logging
+from enetities import Player
+import datetime
+
+class Exit(Exception):
+    def __init__(self) -> None:
+        super().__init__("Exit the process.")
+
+
+logging.basicConfig(
+    level=logging.INFO,  # 設定最低記錄等級
+    format='%(asctime)s - %(levelname)s - %(message)s',  # 記錄格式
+    filename='latest.log',  # 輸出到檔案（可省略則輸出到 console）
+    filemode='w'  # 'w' 表示覆寫，'a' 表示追加
+)
+
+logging.debug("這是除錯訊息")
+logging.info("這是一般訊息")
+logging.warning("這是警告")
+logging.error("這是錯誤")
+logging.critical("這是嚴重錯誤")
+
+
+
 
 load_dotenv()
 render=["default",
@@ -39,9 +63,9 @@ async def on_ready():
     print(f"Bot is online as {bot.user}")
     try:
         synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} slash commands")
+        logging.info(f"Synced {len(synced)} slash commands")
     except Exception as e:
-        print(f"Sync failed: {e}")
+        logging.info(f"Sync failed: {e}")
         
     with open("message_to_restore.txt", "r") as f:
         channel_id,msg_id=f.read().split("\n")
@@ -65,6 +89,8 @@ async def on_ready():
 @app_commands.describe(player="玩家名稱",mode="遊戲模式")
 @bot.tree.command(name="search_player", description="查詢玩家Tier") 
 async def search_player(interaction: discord.Interaction,player: str,mode:int):
+    if datetime.date.today()>datetime.date(2025,11,15):
+        await interaction.response.send_message(embed=discord.Embed(color=discord.Colour.yellow(),title="本指令已經廢除",description="請改用``/tier``指令。"))
     modes={0:"Overall",
     1:"Sword",
     2:"UHC",
@@ -165,6 +191,7 @@ async def search_player(interaction: discord.Interaction,player: str,mode:int):
     conn.close()
     dsc=""
     embed=discord.Embed()
+    embed.add_field(name="該指令即將廢除!",value="因應資料庫及程式實例化，本指令將於2025/11/15廢除，請利用``/tier``指令搜尋玩家資料。")
     embed.color=discord.Color.blue()
     player_display=player.replace("_","\\_")
     if player=="ItzMyGO":
@@ -185,7 +212,7 @@ async def search_player(interaction: discord.Interaction,player: str,mode:int):
         title=f"{player_display} {name_changed_message}  |  Banned, Reason: {player_info[1]}"
     elif mode!=0 and lst:
         is_retired=lst[0][4]
-        title=f"{player_display} {name_changed_message}  |  {lst[0][1]} {"R" if is_retired else ""}{lst[0][2]} "
+        title=f"{player_display} {name_changed_message}  |  {lst[0][1]} {'R' if is_retired else ''}{lst[0][2]} "
     elif not lst:
         title=f"{player_display} {name_changed_message}  |  {modes.get(mode)}"
         dsc+=f"**{player_display} 沒有得到任何Tier**"
@@ -211,7 +238,39 @@ async def search_player(interaction: discord.Interaction,player: str,mode:int):
     else:
         await interaction.response.send_message(embed=embed)
 
+@app_commands.describe(player_or_uuid="玩家名稱 | UUID")
+@bot.tree.command(name="tier", description="查詢玩家資料及Tier (New)") 
+async def tier(interaction: discord.Interaction,player_or_uuid:str):
+    await interaction.response.defer() 
+    try:
+        target=Player(player_or_uuid)
+        embed=discord.Embed()
         
+        embed.color=discord.Color.gold() if target.is_famous else discord.Color.blue()
+        embed.title=target.name.replace("_","\_")  # type: ignore
+        embed.set_thumbnail(url=target.head_pic_url)
+        # embed.set_thumbnail(url=f"https://mc-heads.net/head/{target.uuid}/left")
+        embed.set_image(url=f"https://starlightskins.lunareclipse.studio/render/{choice(render)}/{target.uuid}/full?borderHighlight=true&borderHighlightRadius=5&dropShadow=true&renderScale=2")
+        embed.description="\n".join(target.extra_info)
+        embed.add_field(name="UUID",value=target.uuid,inline=False)
+        embed.add_field(name="暱稱",value=target.nickname,inline=False) if target.nickname else None
+        if target.tier_dict["tiers"]:
+            embed.add_field(name="全域積分",value=f"{target.overall_points} (Rank #{target.overall_rank})",inline=False)
+            embed.add_field(name="核心積分",value=f"{target.core_points} (Rank #{target.core_rank})",inline=False)
+            for field,tier in target.tier_dict["tiers"].items():
+                embed.add_field(name=field,value=tier)
+        else:
+            embed.add_field(name="哎呀...這裡什麼都沒有",value="加入 [福爾摩沙 Tier List Discord Server](https://discord.gg/hamescZvtP) 開單並且完成考試以獲取 Tier!")
+        
+        if interaction.guild_id!=990378958501584916 and rd()>0.7:
+            embed.add_field(name="你是 Minecraft 高版本PVP玩家嗎?",value="快加入 [福爾摩沙 Tier List Discord Server](https://discord.gg/hamescZvtP) 證明你的實力吧!",inline=False)
+            await interaction.followup.send(embed=embed,content="[᠌](https://discord.gg/hamescZvtP)")
+        else:
+            await interaction.followup.send(embed=embed)
+    except Exception as e:
+        await interaction.followup.send(embed=(discord.Embed(colour=0xFF0000, title="⚠️ 發生錯誤", description="```"+str(e)+"```")),ephemeral=True)
+        return
+
 
 @app_commands.describe(mode="模式",x_axis="統計對象")
 @bot.tree.command(name="statistics_count_by_tier", description="各等級之人數之統計") 
@@ -351,6 +410,7 @@ async def update_tier(interaction: discord.Interaction,player:str,mode:Choice[in
         await interaction.response.send_message(embed=discord.Embed(title="你沒有權限更改玩家資料",description="只有開發者可以更改"),ephemeral=True)
 
 @search_player.autocomplete("player")
+@tier.autocomplete("player_or_uuid")
 @update_tier.autocomplete("player")
 async def auto_complete_player(interaction: discord.Interaction, current: str):
     conn=sqlite3.connect('tier_list_latest.db')
@@ -410,35 +470,33 @@ async def play_server(interaction: discord.Interaction, ping_range:Choice[str]):
     conn=sqlite3.connect('tier_list_latest.db')
     cursor=conn.cursor()
     cursor.execute("SELECT * FROM server WHERE server_id=1")
-    must=cursor.fetchone()
     if ping_range.value=="不分延遲":
-        cursor.execute("SELECT * FROM server WHERE server_id>1")
+        cursor.execute("SELECT * FROM server")
     else:
-        cursor.execute("SELECT * FROM server WHERE ping_range=? AND server_id!=1",(ping_range.value,))
+        cursor.execute("SELECT * FROM server WHERE ping_range=?",(ping_range.value,))
     result=cursor.fetchall()
     print(tabulate(result))
     conn.close()
     random.shuffle(result)
-    recommand=result[:2]
-    recommand.insert(0,must)
+    recommand=result[:3]
     print(tabulate(recommand))
     embeds=[]
     for i,j in enumerate(recommand):
         embed=discord.Embed()
-        if i==0:
-            embed.color=discord.Color.gold()
-        else:
-            embed.color=discord.Color.blue()
-        if i==0:
-            embed.title=f":fire: {j[1]} :fire: (強力推薦!!!)"
-        else:
-            embed.title=j[1]+" - "+j[4]
+        # if i==0:
+        #     embed.title=f":fire: {j[1]} :fire: (強力推薦!!!)"
+        # else:
+        embed.title=j[1]+" - "+j[4]
+        
         embed.add_field(name="IP",value=j[3])
         embed.add_field(name="地區",value=j[2])
         embed.set_thumbnail(url=f"https://sr-api.sfirew.com/server/{j[3]}/icon.png")
         embed.add_field(name="介紹",value=j[5],inline=False)
         embed.set_image(url=f'https://sr-api.sfirew.com/server/{j[3]}/banner/motd.png')
-        response=requests.get(f"https://sr-api.sfirew.com/server/{j[3]}")
+        try:
+            response=requests.get(f"https://sr-api.sfirew.com/server/{j[3]}",timeout=(5,10))
+        except Exception as e:
+            embed.set_footer(text="目前網路發生問題，僅能從資料庫擷取資料")
         if response.status_code==200:
             data=response.json()
             if data["online"]:
@@ -471,12 +529,12 @@ async def play_server(interaction: discord.Interaction, ping_range:Choice[str]):
 
 
 
-@bot.event
-async def on_command_error(ctx: commands.Context, error: commands.CommandError):
-    if isinstance(error, commands.CommandNotFound):
-        await ctx.message.reply("Command not found")
-    if isinstance(error, commands.CommandError):
-        await ctx.message.reply(str(error))
+# @bot.event
+# async def on_command_error(ctx: commands.Context, error: commands.CommandError):
+#     if isinstance(error, commands.CommandNotFound):
+#         await ctx.message.reply("Command not found")
+#     if isinstance(error, commands.CommandError):
+#         await ctx.message.reply(str(error))
 
 
 
