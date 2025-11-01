@@ -57,7 +57,8 @@ render=["default",
 
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents,owner_id=1110595121591898132)
-
+if bot.owner_id:
+    owner=bot.get_user(bot.owner_id)
 @bot.event
 async def on_ready():
     print(f"Bot is online as {bot.user}")
@@ -271,6 +272,32 @@ async def tier(interaction: discord.Interaction,player_or_uuid:str):
         await interaction.followup.send(embed=(discord.Embed(colour=0xFF0000, title="⚠️ 發生錯誤", description="```"+str(e)+"```")),ephemeral=True)
         return
 
+@app_commands.describe(player_or_uuid="玩家名稱 | UUID")
+@bot.tree.command(name="tier_ban", description="封鎖玩家") 
+async def tier_ban(interaction: discord.Interaction,player_or_uuid:str,reason:str):
+    if interaction.user.id==bot.owner_id:
+        await interaction.response.defer()
+        player=Player(player_or_uuid)
+        player.ban(reason)
+        await interaction.followup.send(embed=discord.Embed(color=discord.Colour.dark_embed(),
+                                                            title=f"已封鎖玩家{player.name} ",
+                                                            description=f"封鎖原因: {reason} (uuid:{player.uuid})"))
+    else:
+        raise Exception("No permission | 權限不足。")
+
+@app_commands.describe(player_or_uuid="玩家名稱 | UUID")
+@bot.tree.command(name="tier_unban", description="解封鎖玩家") 
+async def tier_unban(interaction: discord.Interaction,player_or_uuid:str):
+    if interaction.user.id==bot.owner_id:
+        await interaction.response.defer()
+        player=Player(player_or_uuid)
+        player.unban()
+        await interaction.followup.send(embed=discord.Embed(color=discord.Colour.dark_embed(),
+                                                            title=f"已解封鎖玩家 {player.name}",
+                                                            description=f"(uuid:{player.uuid})"))
+    else:
+        raise Exception("No permission | 權限不足。")
+        
 
 @app_commands.describe(mode="模式",x_axis="統計對象")
 @bot.tree.command(name="statistics_count_by_tier", description="各等級之人數之統計") 
@@ -412,6 +439,8 @@ async def update_tier(interaction: discord.Interaction,player:str,mode:Choice[in
 @search_player.autocomplete("player")
 @tier.autocomplete("player_or_uuid")
 @update_tier.autocomplete("player")
+@tier_ban.autocomplete("player_or_uuid")
+@tier_unban.autocomplete("player_or_uuid")
 async def auto_complete_player(interaction: discord.Interaction, current: str):
     conn=sqlite3.connect('tier_list_latest.db')
     cursor=conn.cursor()
@@ -529,12 +558,24 @@ async def play_server(interaction: discord.Interaction, ping_range:Choice[str]):
 
 
 
-# @bot.event
-# async def on_command_error(ctx: commands.Context, error: commands.CommandError):
-#     if isinstance(error, commands.CommandNotFound):
-#         await ctx.message.reply("Command not found")
-#     if isinstance(error, commands.CommandError):
-#         await ctx.message.reply(str(error))
+@bot.tree.error
+async def on_tree_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    if isinstance(error, app_commands.CommandOnCooldown):
+        await interaction.response.send_message(f"指令冷卻中，請等待 {error.retry_after:.2f} 秒", ephemeral=True)
+    elif isinstance(error, app_commands.MissingPermissions):
+        await interaction.response.send_message("你沒有使用這個指令的權限", ephemeral=True)
+    else:
+        # 預設未捕捉的錯誤，選擇丟出或回報
+        dm = bot.get_partial_messageable(1410204311715315722)
+        params = []
+        if interaction.data:
+            if "options" in interaction.data: # type: ignore
+                for option in interaction.data["options"]: # type: ignore
+                    params.append(f'{option["name"]}: {option["value"]}\n') # type: ignore
+        params_str = ", ".join(params)
+        await dm.send(embed=discord.Embed(colour=discord.Colour.red(),title="⚠️ 錯誤報告", description="```"+str(error)+"```"+f"\n時間: {datetime.datetime.now().isoformat()}\n伺服器: {interaction.guild.name} ({interaction.guild_id}) \n頻道: {interaction.channel.name} ({interaction.channel_id})\n使用者: {interaction.user.name} ({interaction.user.id}) \n指令: {interaction.command.name}\n參數: \n{params_str}")) #type:ignore
+        await interaction.response.send_message(embed=discord.Embed(colour=discord.Colour.red(),title="⚠️ 發生錯誤", description="```"+str(error)+"```"+"\n錯誤報告已經回報給開發者"),ephemeral=True)
+        
 
 
 

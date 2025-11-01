@@ -96,6 +96,16 @@ class Player:
         @property
         def head_pic_url(self):
             return f"https://starlightskins.lunareclipse.studio/render/ultimate/{self.uuid}/face?borderHighlight=true&borderHighlightRadius=5&dropShadow=true"
+        
+        def ban(self,reason):
+            self.cursor.execute("UPDATE players SET is_banned=1, reason=?",(reason,))
+            self.conn.commit()
+            return
+            
+        def unban(self):
+            self.cursor.execute("UPDATE players SET is_banned=0, reason=?",(None,))
+            self.conn.commit()
+            return
             
     @staticmethod
     def get_name(uuid):
