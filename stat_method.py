@@ -112,34 +112,17 @@ def fetch_overall_rank(player=None):
     conn=sqlite3.connect("tier_list_latest.db")
     cursor=conn.cursor()
     sql=f"""
-    SELECT player,mode.short,tier_table.tier, tier_table.class_id ,tier_table.short FROM tier_list
-    JOIN players ON tier_list.uuid=players.uuid
-    JOIN mode ON tier_list.mode_id=mode.mode_id
-    JOIN tier_table ON tier_list.tier_id=tier_table.tier_id
-    WHERE tier_list.mode_id<8 AND player != 'ItzMyGO'
-    ORDER BY tier_list.tier_id
+SELECT player, sum(points) AS points FROM  tier_list JOIN players ON players.uuid = tier_list.uuid, tier_table ON tier_table.tier_id = tier_list.tier_id,mode ON mode.mode_id = tier_list.mode_id WHERE player != "ItzMyGO" AND points>0 AND mode.range!="" GROUP by player ORDER by SUM(points) DESC;
     """
     cursor.execute(sql)
     tier_list_sql=cursor.fetchall()
     conn.close()
-    data={x[0]:0 for x in tier_list_sql}
-    for i,j in enumerate(tier_list_sql):
-        base=5-j[2]
-        mult=0.33 if j[2]==3 else 0.5
-        point=round(base+mult*(j[3]),2)
-        data[j[0]]+=point
-    data_tmp=sorted(data.items(),key=lambda x:x[1],reverse=True)
-    data_dict={}
-    ptr=1
-    for i,j in enumerate(data_tmp):
-        if data_tmp[i-1][1]!=j[1]:
-            rank=i+1
-            ptr=rank
-        else:
-            rank=ptr
-        data_dict[j[0]]=rank
+    data_dict={j[0]:{"rank": i+1 if j[1]>tier_list_sql[i-1][1] else [x[1] for x in tier_list_sql].index(j[1])+1,"points":j[1]} for i,j in enumerate (tier_list_sql)}
     if player:
-        return data_dict.get(player)
+        if player in data_dict:
+            return data_dict.get(player).get("rank") #type:ignore
+        else:
+            return None
     else:
         return data_dict
     
@@ -150,34 +133,17 @@ def fetch_core_rank(player=None):
     conn=sqlite3.connect("tier_list_latest.db")
     cursor=conn.cursor()
     sql=f"""
-    SELECT player,mode.short,tier_table.tier, tier_table.class_id ,tier_table.short FROM tier_list
-    JOIN players ON tier_list.uuid=players.uuid
-    JOIN mode ON tier_list.mode_id=mode.mode_id
-    JOIN tier_table ON tier_list.tier_id=tier_table.tier_id
-    WHERE (tier_list.mode_id<5 OR tier_list.mode_id=6) AND player != 'ItzMyGO'
-    ORDER BY tier_list.tier_id
+SELECT player, sum(points) FROM  tier_list JOIN players ON players.uuid = tier_list.uuid, tier_table ON tier_table.tier_id = tier_list.tier_id,mode ON mode.mode_id = tier_list.mode_id WHERE player != "ItzMyGO" AND points>0 and mode.range = "core" GROUP by player ORDER by SUM(points) DESC;
     """
     cursor.execute(sql)
     tier_list_sql=cursor.fetchall()
     conn.close()
-    data={x[0]:0 for x in tier_list_sql}
-    for i,j in enumerate(tier_list_sql):
-        point=tier_point_table.get(j[4])
-        if not point:
-            continue
-        data[j[0]]+=point
-    data_tmp=sorted(data.items(),key=lambda x:x[1],reverse=True)
-    data_dict={}
-    ptr=1
-    for i,j in enumerate(data_tmp):
-        if data_tmp[i-1][1]!=j[1]:
-            rank=i+1
-            ptr=rank
-        else:
-            rank=ptr
-        data_dict[j[0]]=rank
+    data_dict={j[0]:{"rank": i+1 if j[1]>tier_list_sql[i-1][1] else [x[1] for x in tier_list_sql].index(j[1])+1,"points":j[1]} for i,j in enumerate (tier_list_sql)}
     if player:
-        return data_dict.get(player)
+        if player in data_dict:
+            return data_dict.get(player).get("rank") #type:ignore
+        else:
+            return None
     else:
         return data_dict
 

@@ -13,3 +13,10 @@ test.py
 latest.log
 test.db
 tier_list_latest_old
+/database_backup
+/sqlite_visualizer
+sync.py
+sync.log
+test.
+local.py
+test.ipynb

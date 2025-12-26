@@ -1,0 +1,40 @@
+{
+  "查詢類 🔍": [
+    {
+      "name": "tier",
+      "description": "✨ 查看你的榮耀時刻！輸入玩家 ID，我會變出他的 3D 模型和所有戰力數據！"
+    },
+    {
+      "name": "rank",
+      "description": "🏆 誰才是最強王者？查看全域或核心積分排行榜，說不定你就在上面！"
+    },
+    {
+      "name": "play_pvp_server",
+      "description": "⚔️ 想打架找不到地方？告訴我你的延遲需求，我幫你挑選最適合的戰場！"
+    }
+  ],
+  "統計類 📊": [
+    {
+      "name": "dashboard",
+      "description": "📈 數據大本營！一鍵掌握目前資料庫有多少勇者、考官以及這個月的激戰次數。"
+    },
+    {
+      "name": "examiners_leaderboard",
+      "description": "👨‍🏫 勤奮考官榜！看看哪位考官是名副其實的「考試機器」！"
+    }
+  ],
+  "管理類 🛠️": [
+    {
+      "name": "add_test_record",
+      "description": "📝 紀錄一場傳奇面試！將考官與受試者的對決結果刻進資料庫的石碑中。"
+    },
+    {
+      "name": "update_tier",
+      "description": "⚡ 靈力灌頂！手動調整玩家的 Tier 等級（只有開發者能用的神之力）。"
+    },
+    {
+      "name": "query",
+      "description": "💾 靈魂探測！直接與資料庫進行深度對話（限定 SELECT 指令喔）。"
+    }
+  ]
+}
