@@ -20,3 +20,7 @@ sync.log
 test.
 local.py
 test.ipynb
+run_api_local.sh
+role.json
+images/B.png
+.gitignore

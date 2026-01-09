@@ -3,10 +3,16 @@ import requests
 import os
 import datetime
 from stat_method import fetch_core_rank,fetch_overall_rank
+from discord.app_commands import AppCommandError
 db_path="./tier_list_latest.db"
 
+class EntityException(AppCommandError):
+    def __init__(self,message,solution=None):
+        super().__init__(message)
+        self.solution = solution
 
-def query(script,param=None,do_format=True):
+
+def query(script,param=None,do_format=True,do_commit=False):
     with new_conn() as conn:
         cursor=conn.cursor()
         if param:
@@ -14,6 +20,9 @@ def query(script,param=None,do_format=True):
         else:
             cursor.execute(script)
         r=cursor.fetchall()
+        if do_commit:
+            conn.commit()
+            return
     if r:
         if len(r)>1:
             if do_format:
@@ -110,11 +119,11 @@ class Player:
                 if (chr.isalnum or chr == "_") and chr !=" ":
                     continue
                 else:
-                    raise Exception("Bad name format | 錯誤的玩家名稱格式")
+                    raise EntityException("Bad name format | 錯誤的玩家名稱格式","請確認輸入欄位是否為正確的玩家名稱")
             self.uuid,self.name=Player.get_uuid(input)
         
         else:
-            raise Exception("Bad input, uuid or player name is required. | 錯誤的參數，必須為uuid或玩家名稱")
+            raise EntityException("Bad input, uuid or player name is required. | 錯誤的參數，必須為uuid或玩家名稱","請輸入正確格式的玩家名稱或uuid")
         
         if self.uuid.startswith("#unknown"):
             self.extra_info.append("The infomation about this player is not traceable. |  該玩家的資料已經不可考")
@@ -129,21 +138,18 @@ class Player:
             self.cursor.execute("UPDATE players SET player=? WHERE uuid=?",(self.name,self.uuid))
         self.conn.commit()
         
-        self.check_ban()
-        self.ban_id,self.intro,is_famous,self.nickname,self.examiner_id=self.cursor.execute("SELECT ban_id,intro,is_famous,nickname,examiner_id FROM players WHERE uuid=?",(self.uuid,)).fetchone()
-        print(self.ban_id)
-        self.is_banned= True if self.ban_id else False
+        self.ban_id,self.ban_reason,self.ban_effective,self.ban_expired=self.check_ban()
+        print(f"DEBUG: ban_id is '{self.ban_id}' type: {type(self.ban_id)}")
+        self.intro,is_famous,self.nickname,self.examiner_id=self.cursor.execute("SELECT intro,is_famous,nickname,examiner_id FROM players WHERE uuid=?",(self.uuid,)).fetchone()
+        
+        self.is_banned = bool(self.ban_id and str(self.ban_id).strip())
         self.is_famous = bool(is_famous)
         self.is_examiner=True if self.examiner_id else False
-        print(self.is_banned)
+        
         if self.is_banned:
-            self.cursor.execute("SELECT * from ban_list WHERE ban_id = ?",(self.ban_id,))
-            _,_,reason,eff,exp=self.cursor.fetchone()
-            if eff == 0:
-                eff = "未知"
-            if exp == 0:
-                exp = "永久"
-            self.extra_info.append(f"This player has been banned. | 該玩家已經被封鎖，ID:`{self.ban_id}`，原因:{reason}，生效於`{eff}`持續至`{exp}`")
+            eff = self.ban_effective if self.ban_effective != "0" else "未知"
+            exp = self.ban_expired if self.ban_expired != "0" else "永久"
+            self.extra_info.append(f"This player has been banned. | 該玩家已經被封鎖，ID:`{self.ban_id}`，原因:{self.ban_reason}，生效於`{eff}`持續至`{exp}`")
         
         for i in range(len(self.extra_info)):
             self.extra_info[i]="ⓘ "+self.extra_info[i]
@@ -201,6 +207,14 @@ class Player:
         record_list=self.cursor.fetchall()
         records_dict={x[0]:f"{x[0]} / {x[2]} *({(datetime.date.today()-datetime.date.fromisoformat(x[2])).days} 天前)* / {x[1]}\n**{self.name}** `{x[4]}` : `{x[5]}` {x[3]} | {x[6]} → {x[7]}".replace("_","\_") for x in record_list}
         return records_dict
+    
+    @property
+    def test_records_list(self):
+        self.cursor.execute("SELECT      tests.test_id ,mode.short AS mode, tests.test_date,     players.player,     tests.examinee_grade,     tests.examiner_grade,     tt1.short AS original_tier,     tt2.short AS outcome_tier FROM tests JOIN players ON players.uuid = tests.examiner JOIN mode ON tests.mode_id = mode.mode_id LEFT JOIN tier_table AS tt1 ON tt1.tier_id = tests.orginal_tier_id LEFT JOIN tier_table AS tt2 ON tt2.tier_id = tests.outcome_tier_id WHERE tests.examinee = ? ORDER BY tests.test_date DESC;",(self.uuid,))
+        record_list=self.cursor.fetchall()
+        title = [x[0] for x in self.cursor.description]
+        record_dict={x[0]:{title[y]:x[y] for y in range(1,len(x))} for x in record_list }
+        return record_dict
         
     
     @property
@@ -211,25 +225,32 @@ class Player:
         # raise Exception("指令未完善")
         db_backup()
         try:
-            expired_date=datetime.date.fromisoformat(expired_date).isoformat()
-            effect_date=datetime.date.fromisoformat(effect_date).isoformat()
+            expired_date=datetime.date.fromisoformat(expired_date).isoformat() if expired_date != "0" else "0"
+            effect_date=datetime.date.fromisoformat(effect_date).isoformat() if effect_date != "0" else "0"
         except Exception as e:
-            raise e
+            raise EntityException("日期格式輸入錯誤","日期應該為'YYYY-MM-DD'格式")
 
-        self.cursor.execute(f"SELECT ban_id FROM ban_list WHERE ban_id LIKE '{str(datetime.date.today().year)}%'")
-        number=len(self.cursor.fetchall())+1
-        sub_id = str(number).zfill(3)
-        print(sub_id)
-        ban_id=str(datetime.date.today().year)+sub_id if not ban_id else ban_id
-        print(ban_id)
+        if not ban_id:
+            last_id = query(f"SELECT ban_id FROM ban_list WHERE ban_id LIKE 'B{str(datetime.date.today().year)[2:]}%' ORDER BY ban_id DESC LIMIT 1")
+            if last_id:
+                sub_id = int(last_id[3:])+1
+            else:
+                sub_id = 1
+            ban_id = "B"+datetime.date.today().strftime("%y")+str(sub_id).zfill(3)
+        else:
+            ban_id = "B"+ban_id
+
+
         try:
             self.cursor.execute("INSERT INTO ban_list (ban_id,banned_player_uuid,reason,effect_date,expired_date) VALUES(?,?,?,?,?)",(ban_id,self.uuid,reason,effect_date,expired_date))
             self.conn.commit()
         except sqlite3.IntegrityError as e:
-            raise Exception("This Ban ID already exists.")
+            raise EntityException("This Ban ID already exists.","請不要輸入重複的Ban ID")
         self.cursor.execute("UPDATE players SET ban_id = ? WHERE uuid = ?",(ban_id,self.uuid))
         self.conn.commit()
-        return ban_id,effect_date,expired_date
+        eff = effect_date if effect_date != "0" else "未知"
+        exp = expired_date if expired_date != "0" else "永久"
+        return ban_id,eff,exp
         
     def unban(self):
         # raise Exception("指令未完善")
@@ -240,31 +261,24 @@ class Player:
         return
     
     def check_ban(self):
-        db_backup()
-        self.cursor.execute("SELECT ban_id FROM players WHERE uuid = ?",(self.uuid,))
-        r=self.cursor.fetchone()
-        if r:
-            ban_id=r[0]
-        else:
-            return 
-        self.cursor.execute("SELECT ban_id,expired_date FROM ban_list WHERE ban_id = ?",(ban_id,))
-        fetch=self.cursor.fetchall()
-        if fetch:
-            print ([x[1] for x in fetch])
-            if '0' in [x[1] for x in fetch]:
-                return
-            
-            bdlist=[[x[0],datetime.date.fromisoformat(x[1])] for x in fetch if datetime.date.fromisoformat(x[1])>=datetime.date.today()]
-            if bdlist:
-                bdlist.sort(key=lambda x :x[1],reverse=True)
-                ban_id=bdlist[0][0]
-                self.cursor.execute("UPDATE players SET ban_id = ? WHERE uuid = ?",(ban_id,self.uuid))
-                self.conn.commit()
-            else:
+        banned_uuid = query("SELECT banned_player_uuid FROM ban_list")
+        if not banned_uuid:
+            return None,None,None,None
+        if self.uuid in banned_uuid:
+            ban_id,_,ban_reason,ban_effective,ban_expire=query("SELECT * FROM ban_list WHERE banned_player_uuid = ?",(self.uuid,))
+            ban_expire_date=datetime.date.fromisoformat(ban_expire)
+            if datetime.date.today()>ban_expire_date:
                 self.unban()
+            else:
+                return ban_id,ban_reason,ban_effective,ban_expire
         else:
-            self.unban()
-    def update_tier(self,mode_id,tier_id,is_retired=0):
+            return None,None,None,None
+        
+    def update_tier(self,mode_id,tier_id,is_retired=False):
+        if is_retired:
+            is_retired=1
+        else:
+            is_retired=0
         try:
             self.cursor.execute(f"DELETE FROM tier_list WHERE uuid = ? AND mode_id= ?",(self.uuid,mode_id))
             self.cursor.execute(f"INSERT INTO tier_list VALUES('{self.uuid}','{tier_id}','{mode_id}',{is_retired})")
@@ -272,17 +286,33 @@ class Player:
             raise e
         self.conn.commit()
         return 
+    
+    def get_tier(self,mode_id_or_name:str):
+        if mode_id_or_name.isnumeric:
+            if mode_id_or_name in query("SELECT mode_id FROM mode"):
+                tmp=query("SELECT tier_id,tier FROM tier_list_data WHERE uuid = ? AND mode_id = ?",(self.uuid,mode_id_or_name))
+            else:
+                tmp=None
+        elif mode_id_or_name in query("SELECT short FROM mode"):
+            tmp=query("SELECT tier_id,tier FROM tier_list_data WHERE uuid = ? AND mode = ?",(self.uuid,mode_id_or_name))
+        else:
+            raise ValueError(mode_id_or_name)
+        if tmp:
+            return tmp
+        else:
+            return None,None
+    
     @staticmethod
     def get_name(uuid):
         try:
             response=requests.get(f"https://api.minecraftservices.com/minecraft/profile/lookup/{uuid}",timeout=(5,10))
         except requests.exceptions.Timeout:
-            raise Exception("Request timed out. | 與 Minecraft Services API 請求逾時")
+            raise EntityException("Request timed out. | 與 Minecraft Services API 請求逾時","請聯繫開發者(lxtw)了解詳情")
         if response.status_code == 200:
             name=response.json()["name"]
             return name
         elif response.status_code == 404:
-            raise Exception("Player is not found. | 找無此玩家")
+            raise EntityException("Player is not found. | 找無此玩家","請確認uuid是否完全正確")
         else:
             raise Exception(f"Unexcepted error occurs. | 未預期的錯誤 : {response.status_code}")
 
@@ -291,7 +321,7 @@ class Player:
         try:
             response=requests.get(f"https://api.mojang.com/users/profiles/minecraft/{name}",timeout=(5,10))
         except requests.exceptions.Timeout:
-            raise Exception("Request timed out. | 與 Minecraft Services API 請求逾時")
+            raise EntityException("Request timed out. | 與 Minecraft Services API 請求逾時","請聯繫開發者(lxtw)了解詳情")
         if response.status_code == 200:
             uuid=response.json()["id"]
             real_name=response.json()["name"]
@@ -305,9 +335,9 @@ class Player:
                 uuid_temp=queuy[0][0]
                 return uuid_temp,Player.get_name(uuid_temp)
             elif len(queuy) > 1:
-                raise Exception("Too many players to determined. | 無法確認玩家身分：太多結果")
+                raise EntityException("Too many players to determined. | 無法確認玩家身分：太多結果","請聯繫開發者(lxtw)")
             else:
-                raise Exception("Player is not found. | 找無此玩家")
+                raise EntityException("Player is not found. | 找無此玩家","請確認玩家名稱是否正確並存在")
         else:
             raise Exception(f"Unexcepted error occurs. | 未預期的錯誤 : {response.status_code}")
 
