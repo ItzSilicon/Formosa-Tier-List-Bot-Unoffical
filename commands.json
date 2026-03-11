@@ -2,47 +2,55 @@
   "查詢類 🔍": [
     {
       "name": "tier",
-      "description": "查詢玩家的 Tier 階級資料（可輸入 ID 或 UUID，連結後可留空查詢自己）。"
+      "description": "查詢玩家資料及 Tier 評級（支援名稱/UUID，連結後可留空查詢自己）。"
     },
     {
       "name": "rank",
       "description": "顯示全域（Overall）或核心（Core）積分的玩家排名列表。"
     },
     {
+      "name": "test_history",
+      "description": "查詢玩家的詳細考試歷史紀錄（支援多種過濾條件）。"
+    },
+    {
       "name": "link_hypixel",
-      "description": "將 Discord 帳號與 Minecraft 帳號進行驗證綁定（需 API Key）。"
+      "description": "將 Discord 與 Minecraft 帳號透過 Hypixel 伺服器進行驗證連結。"
     },
     {
       "name": "play_pvp_server",
-      "description": "根據延遲偏好推薦可遊玩的 1.9+ PVP 伺服器。"
+      "description": "列出可遊玩的 1.9+ PVP 伺服器並可依照延遲（Ping）進行篩選。"
+    },
+    {
+      "name": "ai_chat",
+      "description": "與 AI 進行聊天對話（僅限福爾摩沙伺服器使用）。"
     },
     {
       "name": "help",
-      "description": "開啟指令手冊，查看所有詳細指南與指令說明。"
+      "description": "開啟指令手冊，查看機器人功能指南與詳細說明。"
     }
   ],
   "統計類 📊": [
     {
       "name": "dashboard",
-      "description": "查看資料庫資訊儀錶板（包含玩家數、封禁數及考試數據統計）。"
+      "description": "顯示資料庫統計儀錶板（包含玩家總數、封禁數及考試數據）。"
     },
     {
       "name": "examiners_leaderboard",
-      "description": "查看考官執試次數排行榜（總排行、本月及上月排行）。"
+      "description": "查看考官執試次數排行榜（包含總排行與月排行）。"
     }
   ],
   "管理類 🛠️": [
     {
       "name": "add_test_record",
-      "description": "[考官/管理員] 登記考試成績並更新玩家 Tier（具備自動冷卻檢測）。"
+      "description": "[考官/管理員] 登記考試成績至資料庫，並具備自動冷卻檢測與通知功能。"
     },
     {
       "name": "update_tier",
-      "description": "[管理員] 手動更新指定玩家特定模式的 Tier 等級或退役狀態。"
+      "description": "[管理員] 手動更新玩家在特定模式的 Tier 等級資料。"
     },
     {
       "name": "tier_ban",
-      "description": "[開發者] 封鎖玩家進入 Tier 系統，需註明原因與期限。"
+      "description": "[開發者] 封鎖玩家，禁止其出現在 Tier List 系統中。"
     },
     {
       "name": "tier_unban",
@@ -50,23 +58,27 @@
     },
     {
       "name": "add_examiner",
-      "description": "[開發者] 新增玩家至考官名單。"
+      "description": "[開發者] 新增考官身分至資料庫。"
     },
     {
       "name": "remove_examiner",
-      "description": "[開發者] 從考官名單中移除玩家。"
+      "description": "[開發者] 移除特定玩家的考官身分。"
+    },
+    {
+      "name": "manual_link",
+      "description": "[開發者] 強制連結 Discord 帳號與 Minecraft UUID。"
     },
     {
       "name": "query",
-      "description": "[開發者] 執行 SQL 查詢語法以直接讀取資料庫數據。"
+      "description": "[開發者] 執行資料庫 SQL 查詢（僅限 SELECT 語法）。"
     },
     {
       "name": "send_message",
-      "description": "[開發者] 令機器人在指定頻道發送訊息。"
+      "description": "[開發者] 指令機器人在指定頻道發送訊息。"
     },
     {
       "name": "kill",
-      "description": "[開發者] 重啟機器人並記錄重啟狀態。"
+      "description": "[開發者] 安全關閉並重新啟動機器人程式。"
     }
   ]
 }

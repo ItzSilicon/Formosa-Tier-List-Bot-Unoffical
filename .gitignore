@@ -24,3 +24,9 @@ run_api_local.sh
 role.json
 images/B.png
 .gitignore
+init_error.log
+restart.sh
+knowledge_database
+web
+.dev
+chroma_db

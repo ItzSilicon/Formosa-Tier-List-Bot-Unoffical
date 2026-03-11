@@ -1,251 +1,127 @@
 import random
 import sqlite3
-import requests
 import os
-from dotenv import load_dotenv
-import discord
-from discord import app_commands
-from discord.ext import commands
+from discord import app_commands,Interaction,Message,Member,Embed,Colour,DMChannel
+from discord import NotFound as discordNotFound
+from discord import Forbidden as discordForbidden
+from discord import Object as DiscordObject
 from discord.app_commands import Choice
-from random import choice
-from random import shuffle
+from random import choice,shuffle
 from random import random as rd
 import stat_method
-from stat_method import fetch_overall_rank
-from stat_method import fetch_core_rank
 from tabulate import tabulate
 import logging
-from enetities import Player
-from enetities import db_backup,get_modes_dict,get_examiner_dict,new_conn,get_tier_table
-import enetities
-import datetime
+from entities import db_backup,get_modes_dict,get_examiner_dict,new_conn,get_tier_table,Player,EntityException,get_players_amount,get_banned_amount,get_tier_list_amount,fetch_core_rank,fetch_overall_rank
+# from entities import query as data_query
 import os
 import time
 import json
+from discord.ui import Button, View
+import re
+from config import *
+from chatbot import chat_via_interaction,chat_via_mention
+import asyncio
 
 
-
-def get_link_help_embeds():
-    # 1. 定義圖片檔案 (假設檔案在同級目錄下)
-    # 這裡先宣告 File 物件，稍後在 send 時使用
-    files = [
-        discord.File("images/A.png", filename="A.png"),
-        discord.File("images/B.png", filename="B.png")
-    ]
-
-    embeds = []
-    e7=discord.Embed(
-        title="Minecraft - Discord 連結驗證教學",
-        description="為了確保你是玩家本人，請利用以下方法進行 Minecraft 與 Discord 帳號驗證",
-        color=discord.Color.purple()
-    )
-    embeds.append(e7)
-    e6 = discord.Embed(
-        title="[方法一] 在福爾摩沙 Tier List 考試",
-        description="如果您在Tier List參與考試(指派之高階考試除外)，系統登記成績時會綁定您在伺服器開單考試時的Discord用戶，效期為`90`天",
-        color=discord.Color.dark_blue()
-    )
-    embeds.append(e6)
-
-    # --- Embed 0: 標題 ---
-    e0 = discord.Embed(
-        title="[方法二] Hypixel 帳號驗證教學",
-        description="請按照以下步驟完成 API Key 取得與 Discord 連結。效期為`45`天",
-        color=discord.Color.blue()
-    )
-    embeds.append(e0)
-
-    # --- Embed 1: 預備 ---
-    e1 = discord.Embed(
-        title="📋 預先準備",
-        description="1. 開啟 **Minecraft**\n2. 準備 **瀏覽器**",
-        color=discord.Color.blue()
-    )
-    embeds.append(e1)
-
-    # --- Embed 2: 第一步 ---
-    e2 = discord.Embed(
-        title="Step 1：取得 API Key",
-        description=(
-            "1. 前往 [Hypixel Developer Dashboard](https://developer.hypixel.net/)\n"
-            "2. 使用你的 Hypixel 論壇帳號登入。\n"
-            "3. **若未連結帳號**，請先透過以下方式：\n"
-            "   - 方法 1: 伺服器內輸入 `/linkaccount` 並點選連結\n"
-            "   - 方法 2: 加入 `forums.hypixel.net` 取得驗證碼後至 [此處](https://hypixel.net/link-minecraft/) 輸入\n"
-            "4. 點選 **'CREATE API KEY'** 並複製產生的 **API-Key**。"
-        ),
-        color=discord.Color.gold()
-    )
-    e2.set_image(url="attachment://A.png")
-    embeds.append(e2)
-
-    # --- Embed 3: 第二步 ---
-    e3 = discord.Embed(
-        title="Step 2：在遊戲內綁定 Discord",
-        description=(
-            "1. 進入 Hypixel 伺服器 (`mc.hypixel.net`)。\n"
-            "2. 輸入 `/profile` 打開個人選單。\n"
-            "3. 點擊 **'Social Media'** (頭像圖示)。\n"
-            "4. 點擊 **'Discord'** 並貼上你的 **Discord 使用者名稱**。\n"
-            "5. 點擊書本圖示確認存檔。"
-        ),
-        color=discord.Color.gold()
-    )
-    e3.set_image(url="attachment://B.png")
-    embeds.append(e3)
-
-    # --- Embed 4: 第三步 ---
-    e4 = discord.Embed(
-        title="Step 3：執行驗證指令",
-        description="最後回到這裡輸入：\n`/link_hypixel api_key:你的KEY player_or_uuid:你的ID`",
-        color=discord.Color.green()
-    )
-    embeds.append(e4)
-
-    # --- Embed 5: 注意事項 ---
-    e5 = discord.Embed(
-        title="⚠️ 注意事項",
-        description=(
-            "• **被封鎖者**：若先前未綁定，將無法透過此方式驗證。\n"
-            "• **名稱一致**：請確保遊戲內填寫的名稱與目前 Discord 帳號完全相同。\n"
-            "• **同步延遲**：設定後 API 可能需要 1-2 分鐘生效。"
-        ),
-        color=discord.Color.red()
-    )
-    e5.set_footer(text="提示：API Key 是私密資訊，請勿隨意分享給他人。")
-    embeds.append(e5)
-
-    return embeds, files
-
-def fetch_role_json(dcuid:int):
-    with open("role.json",'r',encoding='utf-8') as fd:
-        fd=json.load(fd)
-    for i in fd:
-        if dcuid in fd[i]:
-            return i
-    return None
-
-
-def verify_hypixel_discord(api_key, uuid, discord_tag):
-    # 調用 Hypixel 官方 API
-    url = f"https://api.hypixel.net/v2/player?key={api_key}&uuid={uuid}"
-    response = requests.get(url).json()
-    
-    if response.get("success") and response.get("player"):
-        # 抓取玩家在遊戲內設定的 Discord 連結
-        social_media = response["player"].get("socialMedia", {})
-        links = social_media.get("links", {})
-        hypixel_discord = links.get("DISCORD") # 這是玩家在遊戲內填的內容
-        
-        # 比對 Discord Tag (例如: username 或 user#1234)
-        if hypixel_discord == discord_tag:
-            return True
-    return False
-
-def today():
-    return datetime.date.today().isoformat()
-
-
-async def check_link(interaction:discord.Interaction) -> str:
-    link_info=None
-    link_info=discord.Embed()
-    tmp=enetities.query("SELECT discord_user_name,minecraft_uuid,expired_at FROM discord_minecraft WHERE discord_user_id = ?",(interaction.user.id,))
-    if tmp:
-        dcusr,mcuuid,exp_date=tmp
-    else:
-        logging.info("This player is not linked.")
-        link_info.title="未驗證"
-        link_info.description="請參考連結驗證教學，如果想查詢特定的玩家請填`player_or_uuid`欄位。"
-        await interaction.followup.send(embed=link_info)
-        embed_list, file_list = get_link_help_embeds()
-        await interaction.followup.send(embeds=embed_list,ephemeral=True,files=file_list)
-        return
-    logging.info("This player is linked, try to verify...")
-    exp_date=datetime.date.fromisoformat(exp_date)
-    is_expired = exp_date<datetime.date.today()
-    logging.info(f"{exp_date=}, {is_expired=}, {exp_date<datetime.date.today()=}")
-    logging.info(f"{interaction.user.name==dcusr=}")
-    username_changed = dcusr != interaction.user.name
-    if is_expired or username_changed:
-        logging.info("This player's verification is invaild, ask to reverify.")
-        with new_conn() as conn:
-            cursor=conn.cursor()
-            cursor.execute("DELETE FROM discord_minecraft WHERE discord_user_id = ?",(interaction.user.id,))
-            conn.commit
-        if is_expired:
-            link_info.title="連結驗證已過期"
-        else:
-            link_info.title="偵測到使用者名稱已變更"
-        link_info.description="請使用``/link_hypixel``重新驗證"
-        await interaction.followup.send(embed=link_info)
-        return
-    else:
-        logging.info("Verify successfully.")
-        logging.debug(f"{mcuuid=}")
-        return mcuuid
-
-
-    
-
-class Exit(Exception):
-    def __init__(self) -> None:
-        super().__init__("Exit the process.")
-
+### LOGGING ###
 
 logging.basicConfig(
     level=logging.INFO,  # 設定最低記錄等級
-    format='%(asctime)s - %(levelname)s - %(message)s',  # 記錄格式
+    format=' [%(asctime)s] [%(filename)s / %(funcName)s] [%(levelname)s] %(message)s ',  # 記錄格式
     filename='latest.log',  # 輸出到檔案（可省略則輸出到 console）
-    filemode='w'  # 'w' 表示覆寫，'a' 表示追加
+    filemode='a'  # 'w' 表示覆寫，'a' 表示追加,
 )
-
-logging.debug("這是除錯訊息")
-logging.info("這是一般訊息")
-logging.warning("這是警告")
-logging.error("這是錯誤")
-logging.critical("這是嚴重錯誤")
-
+# logging.debug("這是除錯訊息")
+# logging.info("這是一般訊息")
+# logging.warning("這是警告")
+# logging.error("這是錯誤")
+# logging.critical("這是嚴重錯誤")
 
 
 
-load_dotenv()
-render=["default",
-        "marching",
-        "walking",
-        "crossed",
-        "criss_cross",
-        "ultimate",
-        "isometric",
-        "relaxing",
-        "pointing",
-        "lunging",
-        "dungeons",
-        "archer",
-        "reading"]
-
-
-intents = discord.Intents.default()
-bot = commands.Bot(command_prefix="!", intents=intents,owner_id=1110595121591898132)
-if bot.owner_id:
-    owner=bot.get_user(bot.owner_id)
+### ON READY ###
 @bot.event
 async def on_ready():
-    print(f"Bot is online as {bot.user}")
+    logging.info(f"Bot is online as {bot.user}")
     try:
-        synced = await bot.tree.sync()
-        logging.info(f"Synced {len(synced)} slash commands")
+        owner = await owner_user()
+        await owner.send(embed=Embed(title="機器人啟動成功",description="各指令已就緒"))
     except Exception as e:
-        logging.info(f"Sync failed: {e}")
+        logging.exception(e)
         
-    with open("message_to_restore.txt", "r") as f:
-        channel_id,msg_id=f.read().split("\n")
-        channel = await bot.fetch_channel(int(channel_id))
-        msg = await channel.fetch_message(int(msg_id)) # type: ignore
-        await msg.edit(embed=discord.Embed(title="機器人重啟成功",description="可以繼續使用"))
 
+### ON MESSAGE ###
+@bot.event
+async def on_message(message:Message):
+    if message.author.id==bot.user.id:
+        return
+    if message.author.bot:
+        logging.info("Message from bot, ignored")
+        return
+    
+    if message.guild:
+        logging.info("Message from guild")
+        if message.guild.id==DEV_GUILD.id:
+            logging.info(f"Message from dev guild: {message.guild.id}")
+            if bot.user.mention in message.content:
+                logging.info("Message contains bot mention")
+                async with message.channel.typing():
+                    code = await chat_via_mention(message)
+                    if code == 1:
+                        return
+                if code == 2:
+                    embed = Embed(
+                        title="權杖餘額不足",
+                        description="權杖不足100，不足最低使用需求，無法使用AI服務",
+                        color=Colour.red()
+                    )
+                    embed.set_footer(
+                        text="本訊息將會於5秒後自動刪除",
+                    )
+                    send = await message.reply(embed=embed)
+                    await asyncio.sleep(5)
+                    await sent.delete()
+                if code == 3:
+                    embed = Embed(
+                        title="請求過於頻繁",
+                        description="為避免服務阻塞，請勿頻繁請求AI服務",
+                        color=Colour.red()
+                    )
+                    embed.set_footer(
+                        text="本訊息將會於5秒後自動刪除",
+                    )
+                    sent = await message.reply(embed=embed)
+                    await asyncio.sleep(5)
+                    await sent.delete()
+                    return
+                else:
+                    logging.info("Chat via mention failed")
+                    return
+            elif '!!!!' in message.content:
+                logging.info("Message contains !!!!")
+                embed= Embed(title="自動回覆",description=f"嘿，{message.author.mention}，何意味。\n(溫馨提醒，本訊息將在60秒後自動刪除:trollface:)",color=Colour.yellow(),timestamp=message.created_at)
+                embed.set_footer(
+                    text=message.author.name,
+                    icon_url=message.author.display_avatar.url
+                )
+                sent = await message.reply(embed=embed)
+                await asyncio.sleep(60)
+                await sent.delete()
+                return
+            else:
+                logging.info("Message does not contain bot mention or !!!!")
+                return
+        else:
+            return
+    else:
+        return
+    
 
+### SLASH COMMANDS ###
+
+@app_commands.checks.cooldown(1, 1, key=lambda i: i.user.id)
 @bot.tree.command(name="send_message", description="傳送訊息") 
-async def send_message(interaction: discord.Interaction,channel_id:str="0",msg:str="測試"):
+async def send_message(interaction: Interaction,channel_id:str="0",msg:str="測試"):
     channel_id=int(channel_id)  
     if interaction.user.id==bot.owner_id:
         if not channel_id:
@@ -256,19 +132,20 @@ async def send_message(interaction: discord.Interaction,channel_id:str="0",msg:s
         await interaction.response.send_message("傳送成功")
         return 
     else:
-        raise KnownException("No permission | 權限不足。")
+        raise CommandException("權限不足","非管理人員請不要使用該指令")
 
+@app_commands.checks.cooldown(1, 300, key=lambda i: i.user.id)
 @app_commands.describe(player_or_uuid="玩家名稱 | UUID")
 @bot.tree.command(name="link_hypixel", description="discord與Minecraft帳號驗證連結-Hypxiel驗證")
-async def link_hypixel(interaction: discord.Interaction, api_key:str,player_or_uuid:str):
+async def link_hypixel(interaction: Interaction, api_key:str,player_or_uuid:str):
     await interaction.response.defer(ephemeral=True) 
     try:
-        player=enetities.Player(player_or_uuid)
-        tmp = enetities.query("SELECT minecraft_uuid FROM discord_minecraft",do_format=False),enetities.query("SELECT discord_user_id FROM discord_minecraft",do_format=False)
+        player=Player(player_or_uuid)
+        tmp = data_query("SELECT minecraft_uuid FROM discord_minecraft",do_format=False),data_query("SELECT discord_user_id FROM discord_minecraft",do_format=False)
         if all(tmp):
-            uuid_list,dcuid_list= tmp[0][0], tmp[1][0]
+            uuid_list,dcuid_list= tmp[0], tmp[1]
             if interaction.user.id in dcuid_list or player.uuid in uuid_list:
-                await interaction.followup.send(embed=discord.Embed(colour=0xFFFF00,title="已驗證",description="一個Minecraft帳號只能對應到一位Discord用戶，如果你的任一方帳號有被盜、無法登入等其他情形，請聯繫開發者(Discord ID: lxtw)"),ephemeral=True)
+                await interaction.followup.send(embed=Embed(colour=0xFFFF00,title="已驗證",description="一個Minecraft帳號只能對應到一位Discord用戶，如果你的任一方帳號有被盜、無法登入等其他情形，請聯繫開發者(Discord ID: lxtw)"),ephemeral=True)
                 return
         if verify_hypixel_discord(api_key,player.uuid,interaction.user.name):
             try:
@@ -279,49 +156,21 @@ async def link_hypixel(interaction: discord.Interaction, api_key:str,player_or_u
                     conn.commit()
             except Exception as e:
                 raise e
-            await interaction.followup.send(embed=discord.Embed(colour=0x00FF00,title="驗證成功!",description=f"該連結有效期限至``{expire_date}`` (45天)，過期後須重新驗證"),ephemeral=True)
+            await interaction.followup.send(embed=Embed(colour=0x00FF00,title="驗證成功!",description=f"該連結有效期限至``{expire_date}`` (45天)，過期後須重新驗證"),ephemeral=True)
         else:
-            await interaction.followup.send(embed=discord.Embed(colour=0xFF0000,title="驗證失敗!"),ephemeral=True)
+            await interaction.followup.send(embed=Embed(colour=0xFF0000,title="驗證失敗!"),ephemeral=True)
         return
     except Exception as e:
-        await interaction.followup.send(embeds=discord.Embed(title="發生錯誤",description=f"```{e}```"),ephemeral=True)
+        await interaction.followup.send(embed=Embed(title="發生未知錯誤",description=f"已回報給開發者"),ephemeral=True)
         return
     
 
-
-# 建立一個右鍵點擊訊息時出現的指令
-@bot.tree.context_menu(name="撤回此訊息")
-async def retract_message(interaction: discord.Interaction, message: discord.Message):
-    if interaction.user.id==bot.owner_id:
-        try:
-            await message.delete()
-            await interaction.response.send_message("訊息已撤回",ephemeral=True,delete_after=5)
-        except discord.Forbidden:
-            await interaction.response.send_message("❌ 我沒有權限刪除這則訊息", ephemeral=True)
-    else:
-        return
-
-
-@app_commands.choices(mode = [
-    Choice(name="Overall", value=0),
-    Choice(name="Sword", value=1),
-    Choice(name="UHC", value=2),
-    Choice(name="Axe", value=3),
-    Choice(name="NPot", value=4),
-    Choice(name="DPot",value=5),
-    Choice(name="CPVP",value=6),
-    Choice(name="SMP",value=7),
-    Choice(name="Cart",value=8)
-])
-@app_commands.describe(player="玩家名稱",mode="遊戲模式")
-@bot.tree.command(name="search_player", description="查詢玩家Tier") 
-async def search_player(interaction: discord.Interaction,player: str,mode:int):
-    await interaction.response.send_message(embed=discord.Embed(color=discord.Colour.yellow(),title="本指令已經廢除",description="請改用``/tier``指令。"))
-    return
-
+@app_commands.checks.cooldown(1, 5, key=lambda i: i.user.id)
 @app_commands.describe(player_or_uuid="玩家名稱 | UUID，可連結後直接執行查詢自己的tierlist")
 @bot.tree.command(name="tier", description="查詢玩家資料及Tier (New)") 
-async def tier(interaction: discord.Interaction,player_or_uuid:str=""):
+async def tier(interaction: Interaction,player_or_uuid:str=""):
+    # TODO [UI]: 實作下拉選單 (Select Menu) 讓玩家切換不同的顯示模式 (如只看核心積分)
+    # TODO [PERF]: 異步化處理 target=Player(player_or_uuid) 的實例化過程，避免阻塞事件迴圈
     await interaction.response.defer()
     if not player_or_uuid:
         logging.info("Provide no player, try to fetch link status...")
@@ -330,20 +179,25 @@ async def tier(interaction: discord.Interaction,player_or_uuid:str=""):
             player_or_uuid=linked
         else:
             return
-        
     
     try:
         target=Player(player_or_uuid)
-        embed=discord.Embed()
+        embed=Embed()
         
-        embed.color=discord.Color.gold() if target.is_famous else discord.Color.blue()
+        embed.color=Colour.gold() if target.is_famous else Colour.blue()
         embed.title=target.name.replace("_","\_")  # type: ignore
-        embed.set_thumbnail(url=target.head_pic_url)
+        
         # embed.set_thumbnail(url=f"https://mc-heads.net/head/{target.uuid}/left")
         embed.set_image(url=f"https://starlightskins.lunareclipse.studio/render/{choice(render)}/{target.uuid}/full?borderHighlight=true&borderHighlightRadius=5&dropShadow=true&renderScale=2")
         embed.description="\n".join(target.extra_info)
-        embed.add_field(name="UUID",value=target.uuid,inline=False)
+        embed.add_field(name="UUID",value=f'`{target.uuid}`',inline=False)
         embed.add_field(name="暱稱",value=target.nickname,inline=False) if target.nickname else None
+        if target.discord_user_id:
+            player_user =await bot.fetch_user(int(target.discord_user_id))
+            embed.add_field(name="Discord",value=f"{player_user.mention} / ``{player_user.name}``\n名稱: {player_user.global_name}\n(右方為Discord頭像)")
+            embed.set_thumbnail(url=player_user.display_avatar.url)
+        else:
+            embed.set_thumbnail(url=target.head_pic_url)
         data=target.info_dict
         tier_dict=data.get("tier_data")
         if not tier_dict:
@@ -362,11 +216,8 @@ async def tier(interaction: discord.Interaction,player_or_uuid:str=""):
             for item,tier in target.tier_dict["other_tiers"].items():
                 other_tier+=f"\n**{item}** : `{tier}`"
             embed.add_field(name="其他未計入Tier",value=other_tier)
-
-        if target.test_records:
-            embed.add_field(name="近5次考試紀錄 (自2025年12月統計)",value="\n".join(target.test_records.values()),inline=False)
-        else:
-            embed.add_field(name="近5次考試紀錄 (自2025年12月統計)",value="無",inline=False)
+            
+        embed.add_field(name="考試紀錄已經搬家了喔!",value="使用`/test_history`即可查詢完整考試紀錄! ",inline=False)
         
         if interaction.guild_id!=990378958501584916 and rd()>0.7:
             embed.add_field(name="你是 Minecraft 高版本PVP玩家嗎?",value="快加入 [福爾摩沙 Tier List Discord Server](https://discord.gg/hamescZvtP) 證明你的實力吧!",inline=False)
@@ -376,9 +227,10 @@ async def tier(interaction: discord.Interaction,player_or_uuid:str=""):
     except Exception as e:
         raise e
 
+@app_commands.checks.cooldown(1, 1, key=lambda i: i.user.id)
 @app_commands.describe(player_or_uuid="玩家名稱 | UUID",reason="原因",expire_date="結束日期",effected_date="生效日期",ban_id="指定封鎖ID")
 @bot.tree.command(name="tier_ban", description="封鎖玩家") 
-async def tier_ban(interaction: discord.Interaction,player_or_uuid:str,reason:str,expire_date:str,effected_date:str="Now",ban_id:str="Default"):
+async def tier_ban(interaction: Interaction,player_or_uuid:str,reason:str,expire_date:str,effected_date:str="Now",ban_id:str="Default"):
     if interaction.user.id==bot.owner_id:
         await interaction.response.defer()
         player=Player(player_or_uuid)
@@ -387,27 +239,27 @@ async def tier_ban(interaction: discord.Interaction,player_or_uuid:str,reason:st
             bid,efd,exd=player.ban(reason,expired_date=expire_date,ban_id=ban_id) 
         else:
             bid,efd,exd=player.ban(reason,expired_date=expire_date,effect_date=effected_date,ban_id=ban_id) 
-        await interaction.followup.send(embed=discord.Embed(color=discord.Colour.dark_embed(),
+        await interaction.followup.send(embed=Embed(color=Colour.dark_embed(),
                                                             title=f"已封鎖玩家{player.name} ",
                                                             description=f"封鎖原因: {reason} (uuid:{player.uuid})\n封鎖期間: {efd} - {exd} \nBan ID: {bid}"))
         return
     else:
-        raise Exception("No permission | 權限不足。")
+        raise CommandException("權限不足","非管理人員請勿使用該指令")
 
+@app_commands.checks.cooldown(1, 1, key=lambda i: i.user.id)
 @app_commands.describe(player_or_uuid="玩家名稱 | UUID")
 @bot.tree.command(name="tier_unban", description="解封鎖玩家") 
-async def tier_unban(interaction: discord.Interaction,player_or_uuid:str):
+async def tier_unban(interaction: Interaction,player_or_uuid:str):
     await interaction.response.defer() 
     if interaction.user.id==bot.owner_id:
-        await interaction.response.defer()
         player=Player(player_or_uuid)
         player.unban()
-        await interaction.followup.send(embed=discord.Embed(color=discord.Colour.dark_embed(),
+        await interaction.followup.send(embed=Embed(color=Colour.dark_embed(),
                                                             title=f"已解封鎖玩家 {player.name}",
                                                             description=f"(uuid:{player.uuid})"))
         return
     else:
-        raise Exception("No permission | 權限不足。")
+        raise CommandException("權限不足","非管理人員請勿使用該指令")
         
 
 # @app_commands.describe(mode="模式",x_axis="統計對象")
@@ -430,9 +282,9 @@ async def tier_unban(interaction: discord.Interaction,player_or_uuid:str):
 #     Choice(name="大約正規化Tier",value="正規化Tier"),
 #     ] # type: ignore
 # )
-# async def point_statistics(interaction: discord.Interaction, mode:Choice[int], x_axis:Choice[str]):
+# async def point_statistics(interaction: Interaction, mode:Choice[int], x_axis:Choice[str]):
 #     bf,stats=stat_method.tier_list_count_by_tier(mode.value, x_axis.value)
-#     embed=discord.Embed(title=f"Tier List 統計 | 以模式分類 | {x_axis.name} | {mode.name}",)
+#     embed=Embed(title=f"Tier List 統計 | 以模式分類 | {x_axis.name} | {mode.name}",)
 #     embed.set_image(url="attachment://plot.png")
 #     bf.seek(0)
 #     if stats:
@@ -448,6 +300,7 @@ async def tier_unban(interaction: discord.Interaction,player_or_uuid:str):
 #             embed.add_field(name=k,value=v)
 #     await interaction.response.send_message(embed=embed,file=discord.File(fp=bf,filename="plot.png"))
 
+@app_commands.checks.cooldown(1, 5, key=lambda i: i.user.id)
 @app_commands.describe(rang="模式涵蓋範圍",page="範圍")
 @bot.tree.command(name="rank", description="顯示排名") 
 @app_commands.choices(
@@ -458,13 +311,13 @@ async def tier_unban(interaction: discord.Interaction,player_or_uuid:str):
     page=[Choice(name=f"{x*50+1} - {min(x*50+50,stat_method.get_player_amount_in_list())}",value=x) 
           for x in range(0,stat_method.get_player_amount_in_list()//50+1)]
 )
-async def rank(interaction: discord.Interaction, rang:Choice[int], page:Choice[int]):
+async def rank(interaction: Interaction, rang:Choice[int], page:Choice[int]):
     await interaction.response.defer() 
     if rang.value:
         rank_list=fetch_core_rank()
     else:
         rank_list=fetch_overall_rank()
-    embed=discord.Embed(title=f"Tier List 排名 | {rang.name} | # {page.name}")
+    embed=Embed(title=f"Tier List 排名 | {rang.name} | # {page.name}")
     desc=""
     rank_list_item=list(rank_list.items()) #type:ignore
     r=range(page.value*50,min(page.value*50+50,stat_method.get_player_amount_in_list(),len(rank_list_item)))
@@ -479,9 +332,9 @@ async def rank(interaction: discord.Interaction, rang:Choice[int], page:Choice[i
     await interaction.followup.send(embed=embed)
 
 # @bot.tree.command(name="statistics_point", description="積分統計長條圖") 
-# async def statistics(interaction: discord.Interaction):
+# async def statistics(interaction: Interaction):
 #     bf,stats=stat_method.overall_point_stat()
-#     embed=discord.Embed(title=f"Tier List 積分統計長條圖",)
+#     embed=Embed(title=f"Tier List 積分統計長條圖",)
 #     embed.set_image(url="attachment://plot.png")
 #     bf.seek(0)
 #     if stats:
@@ -495,20 +348,23 @@ async def rank(interaction: discord.Interaction, rang:Choice[int], page:Choice[i
 #             embed.add_field(name=k,value=v)
 #     await interaction.response.send_message(embed=embed,file=discord.File(fp=bf,filename="plot.png"))
 
+
+@app_commands.checks.cooldown(1, 1, key=lambda i: i.user.id)
 @bot.tree.command(name="kill", description="重啟機器人 | 只有開發者可以使用") 
-async def kill(interaction: discord.Interaction): 
+async def kill(interaction: Interaction): 
     if interaction.user.id==bot.owner_id:
-        fallback = await interaction.response.send_message(embed=discord.Embed(title="機器人重啟",description="請稍後..."))
-        msg=fallback.message_id
-        with open("message_to_restore.txt", "w") as f:
-            f.write(f"{interaction.channel_id}\n{msg}") # type: ignore
-        exit(0)
+        fallback = await interaction.response.send_message(embed=Embed(title="機器人已關閉",description="掰掰"),ephemeral=True)
+        owner= await owner_user()
+        await owner.send(embed=Embed(title="機器人已關閉",description="Shutdown"))
+        await bot.close()
     else:
         print(f"{interaction.user.name} ({interaction.user.id}) tried to kill the bot, but he is not the owner")
-        await interaction.response.send_message(embed=discord.Embed(title="你沒有權限重啟機器人",description="只有開發者可以重啟"),ephemeral=True)
+        await interaction.response.send_message(embed=Embed(title="你沒有權限關閉機器人",description="只有開發者可以重啟"),ephemeral=True)
 
+
+@app_commands.checks.cooldown(1, 1, key=lambda i: i.user.id)
 @bot.tree.command(name="update_tier", description="更新玩家Tier資料 | 只有開發者可以使用")
-@app_commands.describe(player="玩家名稱",mode="遊戲模式",tier="Tier,表示移除",is_retired="是否退役")
+@app_commands.describe(player="玩家名稱",mode="遊戲模式",tier="Tier,表示移除",is_retired="是否退役",inform_discord_user="DC用戶通知對象",reason="原因")
 @app_commands.choices(
     mode = [
         Choice(name=y,value=int(x)) for x,y in get_modes_dict().items()
@@ -528,7 +384,7 @@ async def kill(interaction: discord.Interaction):
         Choice(name="None",value=0),
         ]
 )
-async def update_tier(interaction: discord.Interaction,player:str,mode:Choice[int],tier:Choice[int],is_retired:bool=False):
+async def update_tier(interaction: Interaction,player:str,mode:Choice[int],tier:Choice[int],is_retired:bool=False,inform_discord_user:Member=None,reason:str=None):
     await interaction.response.defer()
     if interaction.user.id==bot.owner_id:
         via_admin = False
@@ -538,7 +394,7 @@ async def update_tier(interaction: discord.Interaction,player:str,mode:Choice[in
         pass
     else:
         print(f"{interaction.user.name} ({interaction.user.id}) tried to run update_tier command, but he is not the owner")
-        await interaction.followup.send(embed=discord.Embed(title="你沒有權限更改玩家資料",description="只有開發者可以更改"),ephemeral=True)
+        await interaction.followup.send(embed=Embed(title="你沒有權限更改玩家資料",description="只有開發者可以更改"),ephemeral=True)
         return
     
     player_to_update=Player(player)
@@ -546,20 +402,28 @@ async def update_tier(interaction: discord.Interaction,player:str,mode:Choice[in
     
     try:
         player_to_update.update_tier(mode.value,tier.value,is_retired=is_retired)
-        info = embed=discord.Embed(title="更新成功",description=f"已將 {player_to_update.name} ({player_to_update.uuid}) {mode.name} 項目的 Tier 從 {orginal_tier} 更改為 {tier.name}\n [本訊息將會留存予 <@{bot.owner_id}>]")
+        info = embed=Embed(title="更新成功",description=f"已將 {player_to_update.name} ({player_to_update.uuid}) {mode.name} 項目的 Tier 從 {orginal_tier} 更改為 {tier.name}\n原因： {reason} [本訊息將會留存予 <@{bot.owner_id}>]")
         await interaction.followup.send(embed=info)
         dm = bot.get_partial_messageable(1410204311715315722)
         await dm.send(embed=info)
+        if inform_discord_user:
+            try:
+                player_dm = await inform_discord_user.create_dm()
+                info = embed=Embed(title="福爾摩沙 Tier List Tier 變更通知",description=f"玩家 {player_to_update.name} ({player_to_update.uuid}) 您好：\n 您 {mode.name} 項目的 Tier 已從 {orginal_tier} 變更為 {tier.name}。\n 原因： {reason if reason else "無"} \n 如有任何問題，請聯繫福爾摩沙 Tier List 管理人員\n 前往[福爾摩沙 Tier List Discord Server](https://discord.gg/hamescZvtP)")
+                await player_dm.send(embed=info)
+            except Exception as e:
+                raise Exception("無法傳送訊息: {e}")
+
     except Exception as e:
         import traceback
-        await interaction.followup.send(embed=discord.Embed(title="更新失敗",description=f"發生錯誤:\n ```{traceback.format_exception(e)}```"))
+        await interaction.followup.send(embed=Embed(title="更新失敗",description=f"發生錯誤:\n ```{traceback.format_exception(e)}```"))
     
     return
 
 
-
+@app_commands.checks.cooldown(1, 1, key=lambda i: i.user.id)
 @bot.tree.command(name="add_test_record",description="考試成果寫入資料庫(update_tier替代方案)/考官登記成績")
-@app_commands.describe(examinee="受試玩家",mode="考試項目",examiner="執試考官 | 如果為考官身分可默認選擇",examinee_score="受試玩家得分",examiner_score="執試考官得分",new_tier="受試玩家Tier評測結果",date="考試日期，預設為指令執行當下日期，格式請參照`YYYY-MM-DD`",input_test_id="自訂考試ID | 考官不可以自訂",orginal_tier="原考試tier，預設為資料庫tier，輸入後無法更新tier | 考官請勿輸入",do_update_tier="是否執行更新tier | 考官請勿更變",examinee_discord="如果在考試公布區域發送，可提及受試者Discord用戶")
+@app_commands.describe(examinee="受試玩家",mode="考試項目",examiner="執試考官 | 如果為考官身分可默認選擇",examinee_score="受試玩家得分",examiner_score="執試考官得分",new_tier="受試玩家Tier評測結果",date="考試日期，預設為指令執行當下日期，格式請參照`YYYY-MM-DD`",input_test_id="自訂考試ID | 考官不可以自訂",orginal_tier="原考試tier，預設為資料庫tier，輸入後無法更新tier | 考官請勿輸入",do_update_tier="是否執行更新tier | 考官請勿更變",examinee_discord="如果在考試公布區域發送，可提及受試者Discord用戶",ps="備註")
 @app_commands.choices(
     mode = [
         Choice(name=y,value=int(x)) for x,y in get_modes_dict().items()
@@ -592,7 +456,11 @@ async def update_tier(interaction: discord.Interaction,player:str,mode:Choice[in
         Choice(name="None",value=0),
         ]
 )      
-async def add_test_record(interaction:discord.Interaction, examinee:str, mode:Choice[int],examiner:str,examinee_score:int,examiner_score:int,new_tier:Choice[int],date:str="today",examinee_discord:discord.Member=None,input_test_id:str="Default",orginal_tier:Choice[int]=None,do_update_tier:bool=True):
+async def add_test_record(interaction:Interaction, examinee:str, mode:Choice[int],examiner:str,examinee_score:int,examiner_score:int,new_tier:Choice[int],date:str="today",examinee_discord:Member=None,input_test_id:str="Default",orginal_tier:Choice[int]=None,do_update_tier:bool=True,ps:str=""):
+    # TODO: 建立「考試確認步驗」：在寫入資料庫前，先發送一個帶有確認按鈕的 Embed 給考官
+    # TODO: 自動偵測異常數據（例如：分數差過大或不合理的等級跳躍）並標記警告
+    # TODO: 將複雜的「私訊通知與連結邏輯」提取成獨立的 service 函式，提高可讀性
+    # 若考官手動輸入錯誤可能繞過檢查，應改用更嚴謹的按鈕 (Button) 確認互動。
     logging.info(f"{interaction.user.id=}")
     role = fetch_role_json(interaction.user.id)
     logging.info(f"{role=}")
@@ -616,19 +484,20 @@ async def add_test_record(interaction:discord.Interaction, examinee:str, mode:Ch
                     input_test_id="Default"
                     do_update_tier="True"
                     orginal_tier=None
+                    ps=""
                     if in_test_report_chennel and not examinee_discord:
                         logging.info("examiner did not provide dcmember")
-                        await interaction.followup.send(embed=discord.Embed(title="請提供受試者Discord用戶",description=""),ephemeral=True)
+                        await interaction.followup.send(embed=Embed(title="請提供受試者Discord用戶",description=""),ephemeral=True)
                         return
                 else:
                     logging.info("examiner is not verified")
                     return
             else:
                 logging.info("in the wrong channel")
-                await interaction.followup.send(embed=discord.Embed(title="你不能在這裡使用該指令",description="請到 <#990383001709977651> <#990383035323121695> <#1151080742294667384> 使用"),ephemeral=True)
+                await interaction.followup.send(embed=Embed(title="你不能在這裡使用該指令",description="請到 <#990383001709977651> <#990383035323121695> <#1151080742294667384> 使用"),ephemeral=True)
         else:
             logging.info("user is nobody")
-            await interaction.followup.send(embed=discord.Embed(title="你沒有權限更改資料",description="只有開發者可以更改"),ephemeral=True)
+            await interaction.followup.send(embed=Embed(title="你沒有權限更改資料",description="只有開發者可以更改"),ephemeral=True)
             return
                 
 
@@ -636,13 +505,13 @@ async def add_test_record(interaction:discord.Interaction, examinee:str, mode:Ch
     examiner=Player(examiner)
     repeat_warning = False
     cd_warning = False
-    temp=enetities.query("SELECT test_id,test_date FROM tests WHERE examinee=? AND mode_id =? ORDER BY test_date DESC LIMIT 1",(examinee.uuid,mode.value))
+    temp=data_query("SELECT test_id,test_date FROM tests WHERE examinee=? AND mode_id =? ORDER BY test_date DESC LIMIT 1",(examinee.uuid,mode.value))
     if temp:
         check_test_id,check_date=temp
         check_date=datetime.date.fromisoformat(check_date)
         if check_date + datetime.timedelta(days=20) > datetime.date.today():
             cd_warning = True
-            check_test_record = enetities.query("SELECT examiner,outcome_tier_id,examinee_grade,examiner_grade FROM tests WHERE test_id = ?",(check_test_id,))
+            check_test_record = data_query("SELECT examiner,outcome_tier_id,examinee_grade,examiner_grade FROM tests WHERE test_id = ?",(check_test_id,))
             repeat_warning = all((examiner.uuid == check_test_record[0],
                                  check_test_record[1] == str(new_tier.value),
                                  examinee_score == check_test_record[2],
@@ -654,10 +523,10 @@ async def add_test_record(interaction:discord.Interaction, examinee:str, mode:Ch
             date=datetime.date.fromisoformat(date)
             date=date.isoformat()
         except Exception as e:
-            raise e
+            raise CommandException("日期格式錯誤","日期格式應為`YYYY-MM-DD`，如 `2026-02-25`")
 
 
-    examiner_id= enetities.query(f"SELECT examiner_id FROM examiners WHERE uuid = '{examiner.uuid}'")
+    examiner_id= data_query(f"SELECT examiner_id FROM examiners WHERE uuid = '{examiner.uuid}'")
     # logging.info(f"{examiner_id=} {examiner=}")
     have_old_tier=False
     if not orginal_tier:
@@ -673,7 +542,7 @@ async def add_test_record(interaction:discord.Interaction, examinee:str, mode:Ch
     date_list=date.split("-")
     ym=str(date_list[0])+str(date_list[1])
     if input_test_id == "Default" or input_test_id.startswith("COMMIT:"):
-        last_id = enetities.query(f"SELECT test_id FROM tests WHERE test_id LIKE 'T{ym}%' ORDER BY test_id DESC LIMIT 1")
+        last_id = data_query(f"SELECT test_id FROM tests WHERE test_id LIKE 'T{ym}%' ORDER BY test_id DESC LIMIT 1")
         if last_id:
             sub_id=str(int(last_id[-3:])+1)
             test_id="T"+ym+sub_id.zfill(3)
@@ -681,7 +550,7 @@ async def add_test_record(interaction:discord.Interaction, examinee:str, mode:Ch
             test_id="T"+ym+"001"
     else:
         if input_test_id.startswith("COMMIT:"):
-            raise Exception("Costomized test ID is not supported in COMMIT mode")
+            raise CommandException("Costomized test ID is not supported in COMMIT mode",)
         else:
             test_id = input_test_id
             
@@ -690,9 +559,9 @@ async def add_test_record(interaction:discord.Interaction, examinee:str, mode:Ch
             pass
         else:
             if repeat_warning:
-                await interaction.followup.send(ephemeral=True,embed=discord.Embed(colour=0xFFFF00,title="重複登記警告",description=f"偵測到該受試者在20天內有同一項目考試，並且成績及考官一模一樣，請確認是否已經登記，如果確認要登記，請在input_test_id欄位輸入: ``{"COMMIT:"+test_id}``"))
+                await interaction.followup.send(ephemeral=True,embed=Embed(colour=0xFFFF00,title="重複登記警告",description=f"偵測到該受試者在20天內有同一項目考試，並且成績及考官一模一樣，請確認是否已經登記，如果確認要登記，請在input_test_id欄位輸入: ``{"COMMIT:"+test_id}``"))
             else:
-                await interaction.followup.send(ephemeral=True,embed=discord.Embed(colour=0xFFFF00,title="考試冷卻警告",description=f"偵測到該受試者在20天內有同一項目考試，如果確認要登記，請在input_test_id欄位輸入: ``{"COMMIT:"+test_id}``"))
+                await interaction.followup.send(ephemeral=True,embed=Embed(colour=0xFFFF00,title="考試冷卻警告",description=f"偵測到該受試者在20天內有同一項目考試，如果確認要登記，請在input_test_id欄位輸入: ``{"COMMIT:"+test_id}``"))
             return
         
     dm = bot.get_partial_messageable(1410204311715315722)    
@@ -701,7 +570,7 @@ async def add_test_record(interaction:discord.Interaction, examinee:str, mode:Ch
         with new_conn() as conn:
             cursor=conn.cursor()
             cursor.execute("INSERT INTO tests VALUES(?,?,?,?,?,?,?,?,?)",(test_id,mode.value,examinee.uuid,examiner.uuid,examinee_score,examiner_score,old_tier_id,new_tier.value,date))
-            link_infomation_message=discord.Embed(color=discord.Color.blue())
+            link_infomation_message=Embed(color=Colour.blue())
             link_desc=""
             if examinee_discord:
                 cursor.execute("SELECT * FROM discord_minecraft WHERE discord_user_id = ? AND minecraft_uuid = ?",(examinee_discord.id,examinee.uuid))
@@ -740,6 +609,7 @@ async def add_test_record(interaction:discord.Interaction, examinee:str, mode:Ch
 * **對戰比分：**
 {examinee.name}  **{examinee_score} : {examiner_score}** {examiner.name}
 * **Tier 變更：** {old_tier_name} → **{new_tier.name}**
+* **備註：** {ps if ps != "" else "無"}
 
 *如果以上資訊有誤，請聯繫管理人員(<@{bot.owner_id}>)或考官({examiner.name})*
 
@@ -764,11 +634,13 @@ async def add_test_record(interaction:discord.Interaction, examinee:str, mode:Ch
             examinee_dm_channel= await examinee_discord.create_dm()
             try:
                 await examinee_dm_channel.send(embed=link_infomation_message)
-            except discord.Forbidden:
+                link_infomation_message.title="考試結果通知 (備份留存)"
+                await dm.send(embed=link_infomation_message)
+            except discordForbidden:
                 await dm.send("考試結果私訊時，無法發送，特此留存",embed=link_infomation_message)
 
 
-        test_info=discord.Embed(title="考試成果已收錄於資料庫中",
+        test_info=Embed(title="考試成果已收錄於資料庫中",
 description=f"""
 考試ID: {test_id}
 受試者: {examinee.name} ({examinee_discord.mention if examinee_discord else "No discord user provided"})
@@ -802,6 +674,12 @@ Tier 變化: {old_tier_name} → {new_tier.name}
             await interaction.followup.send(embed=test_info)
         
         await dm.send(embed=test_info)
+        if examiner.discord_user_id:
+            examiner_dm_channel = await bot.fetch_user(examiner.discord_user_id)
+            if examiner_dm_channel:
+                await examiner_dm_channel.send(embed=test_info)
+                await examiner_dm_channel.send(embed=Embed(title="!!請仔細核對以上成績資訊!!",colour=Colour.red(),description=f"**考官您好：**\n成績已登記入資料庫！如果以上資訊有問題，或者是後續考試成績需更改之情形，請私訊開發人員/資料庫管理人員 <@{bot.owner_id}>，感謝您的合作！"))
+            
         
         return
     
@@ -809,80 +687,60 @@ Tier 變化: {old_tier_name} → {new_tier.name}
         raise e
 
 
+
+@app_commands.checks.cooldown(1, 1, key=lambda i: i.user.id)
 @bot.tree.command(name="add_examiner", description="新增考官")
-async def add_examiner(interaction: discord.Interaction,player:str):
+async def add_examiner(interaction: Interaction,player:str):
     await interaction.response.defer()
-    num=enetities.query("SELECT examiner_id FROM examiners ORDER by examiner_id DESC LIMIT 1")[1:]
-    examier_id="E"+str(int(num)+1).zfill(4)
-    player=enetities.Player(player)
-    enetities.query(f"INSERT INTO examiners VALUES('{examier_id}','{player.uuid}')")
-    await interaction.followup.send(embed=discord.Embed(title="操作成功",description=f"已將 {player.name} ({player.uuid}) 新增至考官資料庫，ID: {examier_id}".replace("_","\_")))
-    return
+    if interaction.user.id==bot.owner_id:
+        num=data_query("SELECT examiner_id FROM examiners ORDER by examiner_id DESC LIMIT 1")[1:]
+        examier_id="E"+str(int(num)+1).zfill(4)
+        player=Player(player)
+        data_query(f"INSERT INTO examiners VALUES('{examier_id}','{player.uuid}')")
+        await interaction.followup.send(embed=Embed(title="操作成功",description=f"已將 {player.name} ({player.uuid}) 新增至考官資料庫，ID: {examier_id}".replace("_","\_")))
+        return
+    else:
+        await interaction.followup.send(embed=Embed(title="你沒有權限更改資料",description="只有開發者可以更改"),ephemeral=True)
+        return
+        
 
+@app_commands.checks.cooldown(1, 1, key=lambda i: i.user.id)
 @bot.tree.command(name="remove_examiner", description="移除考官")
-async def remove_examiner(interaction: discord.Interaction,examiner:str):
+async def remove_examiner(interaction: Interaction,examiner:str):
     await interaction.response.defer()
-    logging.info(f"{examiner=}")
-    examiner=Player(examiner)
-    examiner_id = enetities.query(f"SELECT examiner_id FROM examiners WHERE uuid = '{examiner.uuid}'")
-    logging.info(f"{examiner_id=}")
-    enetities.query(f"DELETE FROM examiners WHERE examiner_id = '{examiner_id}'",do_commit=True)
-    await interaction.followup.send(embed=discord.Embed(title="操作成功",description=f"已將 {examiner.name} 從考官資料庫移除".replace("_","\_")))
-    return
-
-@link_hypixel.autocomplete("player_or_uuid")
-@tier_ban.autocomplete("player_or_uuid")
-@add_examiner.autocomplete("player")
-@search_player.autocomplete("player")
-@tier.autocomplete("player_or_uuid")
-@update_tier.autocomplete("player")
-@tier_unban.autocomplete("player_or_uuid")
-@add_test_record.autocomplete("examinee")
-async def auto_complete_player(interaction: discord.Interaction, current: str):
-    conn=sqlite3.connect('tier_list_latest.db')
-    cursor=conn.cursor()
-    cursor.execute("SELECT player FROM players")
-    l=[x[0] for x in cursor.fetchall()]
-    conn.close()
-    if current == "":
-        shuffle(l)
+    if interaction.user.id==bot.owner_id:
+        logging.info(f"{examiner=}")
+        examiner=Player(examiner)
+        examiner_id = data_query(f"SELECT examiner_id FROM examiners WHERE uuid = '{examiner.uuid}'")
+        logging.info(f"{examiner_id=}")
+        data_query(f"DELETE FROM examiners WHERE examiner_id = '{examiner_id}'",do_commit=True)
+        await interaction.followup.send(embed=Embed(title="操作成功",description=f"已將 {examiner.name} 從考官資料庫移除".replace("_","\_")))
+        return
     else:
-        match_=set([x for x in l if current.lower() in x.lower()])
-        starts_with=set([x for x in l if [x.lower()][0].startswith(current.lower())])
-        sec=match_-starts_with
-        l=sorted(list(starts_with))+sorted(list(sec))
-    return [app_commands.Choice(name=x,value=x) for x in l if current.lower() in x.lower()][:25]
-
-@remove_examiner.autocomplete("examiner")
-@add_test_record.autocomplete("examiner")
-async def auto_complete_examiner(interaction: discord.Interaction,current: str):
-    l=enetities.query("SELECT player,examiners.examiner_id FROM players,examiners WHERE examiners.uuid = players.uuid ")
-    if current:
-        match_=set([x for x in l if current.lower() in x[0].lower()])
-        starts_with=set([x for x in l if [x[0].lower()][0].startswith(current.lower())])
-        sec=match_-starts_with
-        l=sorted(list(starts_with),key= lambda x:x[0])+sorted(list(sec),key= lambda x:x[0])
-        return [app_commands.Choice(name=x[0],value=x[0]) for x in l if current.lower() in x[0].lower()][:25]
-    else:
-        return [app_commands.Choice(name=x[0],value=x[0]) for x in l]
+        await interaction.followup.send(embed=Embed(title="你沒有權限更改資料",description="只有開發者可以更改"),ephemeral=True)
+        return
+    
 
 
 
+@app_commands.checks.cooldown(1, 5, key=lambda i: i.user.id)
 @bot.tree.command(name="query", description="SQL查詢 (僅限SELECT) ")
 @app_commands.describe(script="SQL查詢語法，僅限SELECT，切分至第一個分號為止")
-async def query(interaction: discord.Interaction,script:str):
+async def query(interaction: Interaction,script:str):
     await interaction.response.defer() 
     db_backup()
     if bot.is_owner(interaction.user):
         pass
     else:
-        if not script.startswith("SELECT"):
-            await interaction.followup.sends("只能輸入SELECT開頭的查詢語法",ephemeral=True)
-        script=script.split(';')[0]
-        for i in ('UPDATE',"DELETE","INSERT","DROP","CREATE","ALTER","PRAGMA","ATTACH",'DETACH','REINDEX','VACUUM','--'):
-            if i.lower() in script.lower():
-                await interaction.followup.send(f"偵測到非法詞彙：{i}",ephemeral=True)
-                return
+        # if not script.startswith("SELECT"):
+        #     await interaction.followup.sends("只能輸入SELECT開頭的查詢語法",ephemeral=True)
+        # script=script.split(';')[0]
+        # for i in ('UPDATE',"DELETE","INSERT","DROP","CREATE","ALTER","PRAGMA","ATTACH",'DETACH','REINDEX','VACUUM','--'):
+        #     if i.lower() in script.lower():
+        #         await interaction.followup.send(f"偵測到非法詞彙：{i}",ephemeral=True)
+        #         return
+        await interaction.followup.send(embed=Embed(title="目前已不開放其他使用者使用該指令",description="只有開發者可以使用"),ephemeral=True)
+        return
     with sqlite3.connect("tier_list_latest.db") as conn:
         cursor=conn.cursor()
         display=f"查詢語法:\n```sql\n{script}```"
@@ -901,6 +759,7 @@ async def query(interaction: discord.Interaction,script:str):
     await interaction.followup.send(display)
     return
 
+@app_commands.checks.cooldown(1, 20, key=lambda i: i.user.id)
 @bot.tree.command(name="play_pvp_server",description="列出可玩的 1.9 PVP伺服器")
 @app_commands.choices(
     ping_range=[
@@ -911,7 +770,9 @@ async def query(interaction: discord.Interaction,script:str):
         Choice(name="不分延遲 - 比起延遲我更喜歡 看~心~情~",value="不分延遲"),
     ]
 )
-async def play_server(interaction: discord.Interaction, ping_range:Choice[str]):
+async def play_server(interaction: Interaction, ping_range:Choice[str]):
+    # TODO: 實作緩存機制：伺服器狀態每 5 分鐘更新一次即可，不需要每次指令都請求 API
+    # TODO [UX]: 增加「點擊複製 IP」的按鈕
     await interaction.response.defer() 
     conn=sqlite3.connect('tier_list_latest.db')
     cursor=conn.cursor()
@@ -928,7 +789,7 @@ async def play_server(interaction: discord.Interaction, ping_range:Choice[str]):
     print(tabulate(recommand))
     embeds=[]
     for i,j in enumerate(recommand):
-        embed=discord.Embed()
+        embed=Embed()
         # if i==0:
         #     embed.title=f":fire: {j[1]} :fire: (強力推薦!!!)"
         # else:
@@ -936,22 +797,24 @@ async def play_server(interaction: discord.Interaction, ping_range:Choice[str]):
         
         embed.add_field(name="IP",value=j[3])
         embed.add_field(name="地區",value=j[2])
-        embed.set_thumbnail(url=f"https://sr-api.sfirew.com/server/{j[3]}/icon.png")
+        embed.set_thumbnail(url=f"https://mc-api.co/v1/icon/{j[3]}")
         embed.add_field(name="介紹",value=j[5],inline=False)
-        embed.set_image(url=f'https://sr-api.sfirew.com/server/{j[3]}/banner/motd.png')
+        embed.set_image(url=f'https://mcapi.us/server/image?ip={j[3]}')
+        response=None
         try:
-            response=requests.get(f"https://sr-api.sfirew.com/server/{j[3]}",timeout=(5,10))
+            response=requests.get(f" https://api.mcsrvstat.us/3/{j[3]}",timeout=(5,10))
         except Exception as e:
             embed.set_footer(text="目前網路發生問題，僅能從資料庫擷取資料")
-        if response.status_code==200:
-            data=response.json()
-            if data["online"]:
-                embed.add_field(name="狀態",value="🟢在線")
-                embed.add_field(name="Ping (台北)",value=f"{data.get('ping')} ms")
-                embed.add_field(name="在線人數",value=data.get('players').get('online'))
-                embed.add_field(name="版本",value=data.get('version').get("raw"))
-            else:
-                embed.add_field(name="狀態",value="🔴離線")
+        if response:
+            if response.status_code==200:
+                data=response.json()
+                if data["online"]:
+                    embed.add_field(name="狀態",value="🟢在線")
+                    # embed.add_field(name="Ping (台北)",value=f"{data.get('ping')} ms")
+                    embed.add_field(name="在線人數",value=data.get('players').get('online'))
+                    embed.add_field(name="版本",value=data.get('version'))
+                else:
+                    embed.add_field(name="狀態",value="🔴離線")
         embeds.append(embed)
     print([x.title for x in embeds])
     await interaction.followup.send(embeds=embeds)
@@ -966,27 +829,29 @@ async def play_server(interaction: discord.Interaction, ping_range:Choice[str]):
         Choice(name="考試數據",value=5),
     ]
 )
-async def dashboard(interaction:discord.Interaction,factor:Choice[int]):
+
+@app_commands.checks.cooldown(1, 5, key=lambda i: i.user.id)
+async def dashboard(interaction:Interaction,factor:Choice[int]):
     await interaction.response.defer()
-    embed=discord.Embed(title=f"Tier List 資料庫儀錶板 - {factor.name}")
+    embed=Embed(title=f"Tier List 資料庫儀錶板 - {factor.name}")
     today=datetime.date.today().isoformat()
     last_month=(datetime.date.today().replace(day=1)-datetime.timedelta(days=1)).isoformat()
     embed.set_footer(text=datetime.datetime.now().strftime("%Y年%m月%d日 %H:%M:%S"))
     if factor.value==1:
-        embed.add_field(name="資料庫紀錄玩家數",value=enetities.get_players_amount())
-        embed.add_field(name="封禁玩家數", value=enetities.get_banned_amount())
-        embed.add_field(name="取得Tier玩家數",value=enetities.get_tier_list_amount())
-        embed.add_field(name="考官數",value=enetities.query("SELECT COUNT(*) FROM examiners"),inline=False)
-        embed.add_field(name=f"本月({datetime.date.today().strftime("%m月")})考試人次",value=enetities.query(f"SELECT COUNT(*) FROM tests WHERE test_date LIKE '{today[:-2]}%'"))
-        embed.add_field(name="上月考試人次",value=enetities.query(f"SELECT COUNT(*) FROM tests WHERE test_date LIKE '{last_month[:-2]}%'"))
-        embed.add_field(name=f"累計考試人次(2025年12月-)",value=enetities.query("SELECT COUNT(*) FROM tests"),inline=False)
-        r=enetities.query(f"SELECT player,COUNT(*) AS x FROM tests,players WHERE players.uuid = tests.examiner AND test_date LIKE '{datetime.date.today().isoformat()[:-2]}%' GROUP BY player ORDER BY x DESC LIMIT 1")
+        embed.add_field(name="資料庫紀錄玩家數",value=get_players_amount())
+        embed.add_field(name="封禁玩家數", value=get_banned_amount())
+        embed.add_field(name="取得Tier玩家數",value=get_tier_list_amount())
+        embed.add_field(name="考官數",value=data_query("SELECT COUNT(*) FROM examiners"),inline=False)
+        embed.add_field(name=f"本月({datetime.date.today().strftime("%m月")})考試人次",value=data_query(f"SELECT COUNT(*) FROM tests WHERE test_date LIKE '{today[:-2]}%'"))
+        embed.add_field(name="上月考試人次",value=data_query(f"SELECT COUNT(*) FROM tests WHERE test_date LIKE '{last_month[:-2]}%'"))
+        embed.add_field(name=f"累計考試人次(2025年12月-)",value=data_query("SELECT COUNT(*) FROM tests"),inline=False)
+        r=data_query(f"SELECT player,COUNT(*) AS x FROM tests,players WHERE players.uuid = tests.examiner AND test_date LIKE '{datetime.date.today().isoformat()[:-2]}%' GROUP BY player ORDER BY x DESC LIMIT 1")
         if r:
             embed.add_field(name="本月目前執試最多次考官",value=f"{r[0]} (共 {r[1]} 次)")
         else:
             embed.add_field(name="本月目前執試最多次考官",value="無")
             
-        r=enetities.query(f"SELECT player,COUNT(*) AS x FROM tests,players WHERE players.uuid = tests.examiner AND test_date LIKE '{last_month[:-2]}%' GROUP BY player ORDER BY x DESC LIMIT 1")
+        r=data_query(f"SELECT player,COUNT(*) AS x FROM tests,players WHERE players.uuid = tests.examiner AND test_date LIKE '{last_month[:-2]}%' GROUP BY player ORDER BY x DESC LIMIT 1")
         
         if r:
             embed.add_field(name="上月明星考官",value=f"{r[0]} (共 {r[1]} 次)")
@@ -1000,14 +865,15 @@ async def dashboard(interaction:discord.Interaction,factor:Choice[int]):
     await interaction.followup.send(embed=embed)
     return
         
+@app_commands.checks.cooldown(1, 5, key=lambda i: i.user.id)
 @bot.tree.command(name="examiners_leaderboard",description="考官執試排行榜")             
-async def examiners_leaderboard(interaction:discord.Interaction):
+async def examiners_leaderboard(interaction:Interaction):
     await interaction.response.defer()
-    embed=discord.Embed(title="考官執試排行榜")
-    l_total=enetities.query("SELECT players.player,COUNT(*) FROM tests,players WHERE tests.examiner=players.uuid GROUP BY examiner ORDER BY COUNT(*) DESC")
-    l_month=enetities.query(f"SELECT players.player,COUNT(*) FROM tests,players WHERE tests.examiner=players.uuid AND tests.test_date LIKE '{datetime.date.today().isoformat()[:-2]}%' GROUP BY examiner ORDER BY COUNT(*) DESC")
+    embed=Embed(title="考官執試排行榜")
+    l_total=data_query("SELECT players.player,COUNT(*) FROM tests,players WHERE tests.examiner=players.uuid GROUP BY examiner ORDER BY COUNT(*) DESC")
+    l_month=data_query(f"SELECT players.player,COUNT(*) FROM tests,players WHERE tests.examiner=players.uuid AND tests.test_date LIKE '{datetime.date.today().isoformat()[:-2]}%' GROUP BY examiner ORDER BY COUNT(*) DESC")
     last_month=(datetime.date.today().replace(day=1)-datetime.timedelta(days=1)).isoformat()
-    l_lst_month=enetities.query(f"SELECT players.player,COUNT(*) FROM tests,players WHERE tests.examiner=players.uuid AND tests.test_date LIKE '{last_month[:-2]}%' GROUP BY examiner ORDER BY COUNT(*) DESC")
+    l_lst_month=data_query(f"SELECT players.player,COUNT(*) FROM tests,players WHERE tests.examiner=players.uuid AND tests.test_date LIKE '{last_month[:-2]}%' GROUP BY examiner ORDER BY COUNT(*) DESC")
 
     desc=""
     rank=1
@@ -1040,7 +906,7 @@ async def examiners_leaderboard(interaction:discord.Interaction):
     await interaction.followup.send(embed=embed)
 
 # @play_server.autocomplete("mode")
-# async def auto_complete_mode(interaction: discord.Interaction, current: str):
+# async def auto_complete_mode(interaction: Interaction, current: str):
 #     conn=sqlite3.connect('tier_list_latest.db')
 #     cursor=conn.cursor()
 #     cursor.execute("SELECT zh_tw FROM mode")
@@ -1056,9 +922,9 @@ async def examiners_leaderboard(interaction:discord.Interaction):
 #     return [app_commands.Choice(name=x,value=x) for x in l if current.lower() in x.lower()][:25]
 
 
-
+@app_commands.checks.cooldown(1, 5, key=lambda i: i.user.id)
 @bot.tree.command(name="help", description="打開指令手冊，查看所有詳細指南！")
-async def help_command(interaction: discord.Interaction):
+async def help_command(interaction: Interaction):
     try:
         # 讀取 JSON 檔案 (假設 key 分別為 "查詢類 🔍", "統計類 📊", "管理類 🛠️")
         with open("commands.json", "r", encoding="utf-8") as f:
@@ -1072,7 +938,7 @@ async def help_command(interaction: discord.Interaction):
             "管理類 🛠️": "🛡️ 開發者管理權限 (Admin Only)"
         }
     
-        embed = discord.Embed(
+        embed = Embed(
             title="📖 福爾摩沙 Tier List 指令手冊",
             description="這裡是目前所有可用的魔法指令！\n若有任何疑問，請聯繫開發人員或考官。",
             color=0x2ecc71  # 活潑的翡翠綠
@@ -1108,23 +974,269 @@ async def help_command(interaction: discord.Interaction):
     except Exception as e:
         await interaction.response.send_message(f"⚠️ 發生未知錯誤：{e}", ephemeral=True)
 
+@app_commands.checks.cooldown(1, 5, key=lambda i: i.user.id)
+@bot.tree.command(name="test_history", description="查詢測驗歷史紀錄")
+@app_commands.describe(player_or_uuid="篩選受試者玩家名稱或UUID",test_id_like="模糊篩選考試ID(考試ID為一項考試之唯一辨識值)",date="篩選特定日期",examiner="篩選特定考官玩家名稱或是UUID",mode="篩選模式名稱",page="指定頁數，默認為第一頁(建議先執行一遍了解有多少頁)")
+@app_commands.choices(
+    mode = [
+        Choice(name=y,value=int(x)) for x,y in get_modes_dict().items()
+    ]
+)
+async def test_history(interaction: Interaction,player_or_uuid:str=None,test_id_like:str=None,date:str=None,examiner:str=None,mode:Choice[int]=None,page:int=None):
+    await interaction.response.defer()
+    filter_query=[]
+    filter_var=[]
+    thumbnail=None
+    description=""
+    if player_or_uuid:
+        player = Player(player_or_uuid)
+        filter_query.append('examinee = ?')
+        filter_var.append(player.name)
+        thumbnail=player.head_pic_url
+        description+=f"篩選: 受試玩家 `{player.name}`\n"
+    if examiner:
+        examiner = Player(examiner)
+        filter_query.append('examiner = ?')
+        filter_var.append(examiner.name)
+        thumbnail=examiner.head_pic_url
+        description+=f"篩選: 考官 `{examiner.name}`\n"
+    if mode:
+        mode = mode.name
+        filter_query.append('mode = ?')
+        filter_var.append(mode)
+        description+=f"篩選: 模式 `{mode}`\n"
+    if date:
+        try:
+            datetime.date.fromisoformat(date)
+        except Exception as e:
+            raise CommandException("日期格式錯誤","日期格式應為`YYYY-MM-DD`，如 `2026-02-25`")
+        filter_query.append('test_date = ?')
+        filter_var.append(date)
+        description+=f"篩選: 日期 `{date}`\n"
+    if test_id_like:
+        filter_query.append("test_id LIKE ?")
+        filter_var.append(f'%{test_id_like}%')
+        description+=f"篩選: test_id 相似 `{test_id_like}`\n"
+    if filter_query and filter_var:
+        filter_query_combine =" WHERE "+" AND ".join(filter_query)
+    else:
+        filter_query_combine = ""
+    full_query=f"SELECT * FROM test_records {filter_query_combine} ORDER BY test_id DESC"
+    logging.info(f"{full_query=}")
+    result = data_query(full_query,tuple(filter_var),do_format=False)
+    
+    embed=Embed(title="歷史考試紀錄查詢結果",description=description)
+    embed.set_thumbnail(url=thumbnail)
+    if not result:
+        embed.colour=Colour.green()
+        embed.add_field(name="找不到任何紀錄",value="去[考試](https://discord.gg/jsHFxvd3)吧。")
+        await interaction.followup.send(embed=embed)
+        return
+    max_page=(len(result)-1)//5+1
+    if page:
+        if page> max_page:
+            raise CommandException("查詢頁數超出範圍",f"此查詢條件結果共{len(result)}筆，最多為{max_page}頁")
+        if page <=0 or type(page) is not int:
+            raise CommandException("無效的頁數","請輸入0以上的整數數字")
+    else:
+        page=1
+    page_result = result[(page-1)*5:min(len(result),page*5)]
+    for i,x in enumerate(page_result):
+        days_ago=(datetime.date.today()-datetime.date.fromisoformat(x[1])).days
+        cd= "" if days_ago > 21 else "(🛑冷卻中)" 
+        embed.add_field(name=f'{i+1}. {x[0]} {cd}',value=f"**{x[1]} | {x[2]}**\n{x[3]} `{x[4]}` : `{x[5]}` {x[6]}\n{x[7]} → {x[8]}".replace("_","\_"),inline=False)
+    embed.set_footer(text=f"共查詢到 {len(result)} 筆，第 {page}/{max_page} 頁")
+    embed.colour=Colour.orange()
+    await interaction.followup.send(embed=embed)
+    
+@app_commands.checks.cooldown(1, 5, key=lambda i: i.user.id)
+@bot.tree.command(name="manual_link", description="手動連結Discord - Minecraft")
+async def manual_link(interaction: Interaction,player_or_uuid:str,discord_user:Member,expiration:int):
+    await interaction.response.defer()
+    
+    if interaction.user.id != bot.owner_id:
+        raise CommandException("權限不足","請勿使用該指令")
+        return
+    
+    player=Player(player_or_uuid)
+    if expiration <=0 or type(expiration) is not int:
+        raise CommandException("expiration 參數格式錯誤","格式為非0正整數")
+        return
+    
+    dm = bot.get_partial_messageable(1410204311715315722)  
+    
+    with new_conn() as conn:
+        link_desc=""
+        cursor=conn.cursor()
+        cursor.execute("SELECT * FROM discord_minecraft WHERE discord_user_id = ? AND minecraft_uuid = ?",(discord_user.id,player.uuid))
+        expired_at=datetime.date.today()+datetime.timedelta(days=expiration)
+        
+        if cursor.fetchall():
+            try:
+                cursor.execute("UPDATE discord_minecraft SET expired_at = ?, discord_user_name=? WHERE discord_user_id = ? AND minecraft_uuid = ?",(expired_at.isoformat(),discord_user.name,discord_user.id,player.uuid))
+                link_desc=f"偵測到帳號連結狀態正常({player.name} (`{player.uuid}`) - {discord_user.mention})，已延長帳號連結的有效期限。".replace("_","\_")
+            except Exception as e:
+                await dm.send(f"更新 Minecraft 玩家 {player.name} ({player.uuid}) 與 {discord_user.mention} ({discord_user.id}) 連結之期限時發生錯誤:\n```{e}```\n")
+        else:
+            try:
+                cursor.execute("DELETE FROM discord_minecraft WHERE discord_user_id = ? OR minecraft_uuid = ?",(discord_user.id,player.uuid))
+                cursor.execute("INSERT INTO discord_minecraft VALUES(?,?,?,?)",(discord_user.id,discord_user.name,player.uuid,expired_at.isoformat()))
+                link_desc=f"已將Discord帳戶({discord_user.mention})連結至玩家 {player.name} (`{player.uuid}`)。"
+            except Exception as e:
+                await dm.send(f"連結 Minecraft 玩家 {player.name} ({player.uuid}) 與 {discord_user.mention} ({discord_user.id}) 時發生錯誤:\n```{e}```\n")
+    
+    await dm.send(link_desc)
+    await interaction.followup.send(content="操作成功。",ephemeral=True)
+    return 
+        
+### GUILD LIMITED COMMAND ###
+
+
+@app_commands.checks.cooldown(1, 20, key=lambda i: i.user.id)
+@bot.tree.command(name="ai_chat", description="與AI聊天")
+@app_commands.guilds(DEV_GUILD)
+async def ai_chat(interaction: Interaction,text:str):
+    await interaction.response.defer()
+    await chat_via_interaction(interaction,text)
+    
+    
+       
+### MENU COMMAND ###      
+        
+@app_commands.checks.cooldown(1, 5, key=lambda i: i.user.id)
+@bot.tree.context_menu(name="智慧登記")
+async def smart_signing(interaction: Interaction, message: Message):
+    await interaction.response.defer(ephemeral=True)
+    if interaction.channel.id in (990383001709977651,990383035323121695,1151080742294667384):
+        text=message.content
+        pattern = r"<@!?(?P<discord_id>\d+)>\s*\(?[*_~]*(?P<username>.+?)[*_~]*\)?\s*(?P<action>考上了|升級至|降級至|維持在|停留在)\s*[*_~]*(?P<mode>[HLM]T\d)[*_~]*\s*[*_~]*(?P<tier>.+?)[*_~]*$"
+        matches = re.finditer(pattern, text)
+        parsed_results = []
+        for match in matches:
+            data = match.groupdict()
+            
+            # 整理成你要的四個參數
+            discord_id = data['discord_id']
+            username = data['username']
+            mode = data['mode']
+            tier = data['tier'].strip()
+            action = data['action'] # 雖然你沒提，但保留動作可能有助於判斷邏輯
+            
+            parsed_results.append(
+                f"🔹 **玩家**: <@{discord_id}>\n"
+                f"📛 **名稱**: {username}\n"
+                f"🎮 **模式**: {mode}\n"
+                f"🏆 **階級**: {tier}\n"
+                f"━━━━━━━━━━━━"
+            )
+
+        if not parsed_results:
+            await interaction.followup.send("❌ 找不到符合格式的玩家資訊。", ephemeral=True)
+        else:
+            final_report = "\n".join(parsed_results)
+            await interaction.followup.send(f"✅ **解析成功！**\n\n{final_report}", ephemeral=True)
+    else:
+        await interaction.followup.send("非考試公布頻道，無法使用")
+        
+
+
+
+
+# 建立一個右鍵點擊訊息時出現的指令
+@app_commands.checks.cooldown(1, 5, key=lambda i: i.user.id)
+@bot.tree.context_menu(name="撤回此訊息")
+async def retract_message(interaction: Interaction, message: Message):
+    if interaction.user.id==bot.owner_id:
+        try:
+            if message.author.id == bot.user.id:
+                await message.delete()
+                await interaction.response.send_message("訊息已撤回",ephemeral=True,delete_after=5)
+            else:
+                await interaction.response.send_message("這不是我的訊息",ephemeral=True,delete_after=3)
+        except discordNotFound:
+            await interaction.response.send_message("❓ 訊息可能已經被刪除了", ephemeral=True)
+        except discordForbidden:
+            await interaction.response.send_message("🚫 我沒有權限刪除這則訊息（請檢查頻道權限）", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"🚨 發生預期外的錯誤：{e}", ephemeral=True)
+    else:
+        await interaction.response.send_message("❌ 你沒有權限指使我刪除這則訊息", ephemeral=True)
+        return
+
+
+
+
+
+### AUTO COMPLETE ###
+@manual_link.autocomplete("player_or_uuid")
+@test_history.autocomplete("player_or_uuid")
+@link_hypixel.autocomplete("player_or_uuid")
+@tier_ban.autocomplete("player_or_uuid")
+@add_examiner.autocomplete("player")
+@tier.autocomplete("player_or_uuid")
+@update_tier.autocomplete("player")
+@tier_unban.autocomplete("player_or_uuid")
+@add_test_record.autocomplete("examinee")
+async def auto_complete_player(interaction: Interaction, current: str):
+    logging.info(f"triggeer AC-player")
+    conn=sqlite3.connect('tier_list_latest.db')
+    cursor=conn.cursor()
+    cursor.execute("SELECT player FROM players")
+    l=[x[0] for x in cursor.fetchall()]
+    conn.close()
+    if current == "":
+        shuffle(l)
+    else:
+        match_=set([x for x in l if current.lower() in x.lower()])
+        starts_with=set([x for x in l if [x.lower()][0].startswith(current.lower())])
+        sec=match_-starts_with
+        l=sorted(list(starts_with))+sorted(list(sec))
+    return [app_commands.Choice(name=x,value=x) for x in l if current.lower() in x.lower()][:25]
+
+@test_history.autocomplete("examiner")
+@remove_examiner.autocomplete("examiner")
+@add_test_record.autocomplete("examiner")
+async def auto_complete_examiner(interaction: Interaction,current: str):
+    logging.info(f"triggeer AC-examiner")
+    l=data_query("SELECT player,examiners.examiner_id FROM players,examiners WHERE examiners.uuid = players.uuid ")
+    if current:
+        match_=set([x for x in l if current.lower() in x[0].lower()])
+        starts_with=set([x for x in l if [x[0].lower()][0].startswith(current.lower())])
+        sec=match_-starts_with
+        l=sorted(list(starts_with),key= lambda x:x[0])+sorted(list(sec),key= lambda x:x[0])
+        return [app_commands.Choice(name=x[0],value=x[0]) for x in l if current.lower() in x[0].lower()][:25]
+    else:
+        return [app_commands.Choice(name=x[0],value=x[0]) for x in l]
+
+
+       
+
+### ERROR HANDLEING ###
 @bot.tree.error
-async def on_tree_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
-    # await interaction.response.defer()
-    # logging.error(error.with_traceback(error.__traceback__))
-    # logging.exception(error)
+async def on_tree_error(interaction: Interaction, error: app_commands.AppCommandError):
+    # TODO: 建立錯誤代碼系統 (Error Code)
+    if interaction.response.is_done():
+        send=interaction.followup.send
+    else:
+        send= interaction.response.send_message
     logging.exception(f"{error}")
     if isinstance(error, app_commands.CommandOnCooldown):
-        await interaction.followup.send(f"指令冷卻中，請等待 {error.retry_after:.2f} 秒", ephemeral=True)
-        return
+        embed=Embed(colour=Colour.yellow(),title="⏳ 指令冷卻中",description=f"請等待 `{error.retry_after:.2f}` 秒")
+        await send(embed=embed, ephemeral=True)
     elif isinstance(error, app_commands.MissingPermissions):
-        await interaction.followup.send("你沒有使用這個指令的權限", ephemeral=True)
+        await send("你沒有使用這個指令的權限", ephemeral=True)
         return
-    elif isinstance(error, enetities.EntityException):
-        error:enetities.EntityException
-        embed=discord.Embed(colour=discord.Colour.red(),title="內部操作錯誤")
+    elif isinstance(error, EntityException):
+        error:EntityException
+        embed=Embed(colour=Colour.red(),title="內部操作錯誤")
         embed.add_field(name=error,value=error.solution)
-        await interaction.followup.send(embed=embed)
+        await send(embed=embed,ephemeral=True)
+        return
+    elif isinstance(error,CommandException):
+        error:CommandException
+        embed=Embed(colour=Colour.red(),title="指令操作錯誤")
+        embed.add_field(name=error,value=error.solution)
+        await send(embed=embed,ephemeral=True)
         return
     else:
         # 預設未捕捉的錯誤，選擇丟出或回報
@@ -1133,27 +1245,36 @@ async def on_tree_error(interaction: discord.Interaction, error: app_commands.Ap
         if interaction.data:
             if "options" in interaction.data: # type: ignore
                 for option in interaction.data["options"]: # type: ignore
-                    params.append(f'{option["name"]}: {option["value"]}\n') # type: ignore
+                    params.append(f'{option["name"]}: {option["value"]}\n'.replace("_","\_")) # type: ignore
         params_str = ", ".join(params)
         if interaction.guild:
             guild_name=interaction.guild
             guild_id=interaction.guild_id
         else:
-            guild_name="Private_guild"
+            guild_name="Private"
             guild_id=None
-        if type(interaction.channel) is discord.DMChannel:
+        if type(interaction.channel) is DMChannel:
             channel_name=f"{interaction.user.name}'s Direct Message"
         else:
             channel_name=interaction.channel.name #type:ignore
-        user_embed=discord.Embed(colour=discord.Colour.red(),title="⚠️ 發生錯誤", description="```"+str(error.with_traceback(error.__traceback__))+"```"+"\n錯誤報告已經回報給開發者")
-        await interaction.followup.send(embed=user_embed,ephemeral=True)
-        await dm.send(embed=discord.Embed(colour=discord.Colour.red(),title="⚠️ 錯誤報告", description="```"+str(error.with_traceback(error.__traceback__))+"```"+f"\n時間: {datetime.datetime.now().isoformat()}\n伺服器: {guild_name} ({guild_id}) \n頻道: {channel_name} ({interaction.channel_id})\n使用者: {interaction.user.name} ({interaction.user.id}) \n指令: {interaction.command.name}\n參數: \n{params_str}")) #type:ignore
+        user_embed=Embed(colour=Colour.red(),title="⚠️ 發生未知錯誤", description="錯誤報告已經回報給開發者")
+        await send(embed=user_embed,ephemeral=True,delete_after=5)
+        await dm.send(embed=Embed(colour=Colour.red(),title="⚠️ 錯誤報告", description="```"+str(error.with_traceback(error.__traceback__))+"```"+f"\n時間: {datetime.datetime.now().isoformat()}\n伺服器: {guild_name} ({guild_id}) \n頻道: {channel_name} ({interaction.channel_id})\n使用者: {interaction.user.name} ({interaction.user.id}) \n指令: {interaction.command.name}\n參數: \n{params_str}".replace("_","\_"))) #type:ignore
         
 
 
-try:
-    bot.run(os.getenv("BOT_TOKEN")) # type: ignore
-except Exception as e:
-    import traceback
-    with open('init_error.log','w',encoding='utf-8') as fd:
-        fd.write("\n".join(traceback.format_exception(e)))
+### Main ###
+def startup():
+    try:
+        
+        bot.setup_hook=setup_hook
+        logging.info("Starting up bot...")
+        bot.run(os.getenv("BOT_TOKEN")) # type: ignore
+        logging.info("Bot shutdown successfully.")
+        return 0
+    except Exception as e:
+        logging.exception(e)
+        return 1
+
+
+startup()
