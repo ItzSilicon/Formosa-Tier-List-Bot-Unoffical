@@ -1,6 +1,5 @@
 /.env
 /formosa_pvp_tier_list.sqbpro
-tier_list_latest.db
 /.vscode
 tier_list_latest.db-journal
 /__pycache__
@@ -30,3 +29,4 @@ knowledge_database
 web
 .dev
 chroma_db
+*.db

@@ -9,7 +9,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column,relationship
 from sqlalchemy.ext.asyncio import AsyncAttrs, create_async_engine, async_sessionmaker,AsyncSession
 from datetime import datetime,timedelta
 from typing import List,Optional
-from discord import Interaction,Message,User,Member,TextChannel,Embed
+from discord import Interaction,Message,User,Member,TextChannel,Embed,Colour
 from pydiscordbio import Client as PydiscordBioClient
 import logging
 import asyncio
@@ -56,7 +56,7 @@ class ChatUsers(Base):
     token_remaining: Mapped[float] = mapped_column(Float,default=100000.0)
     persona: Mapped[Optional[str]] = mapped_column(String(500),default=None)
     enable_reply: Mapped[bool] = mapped_column(Boolean,default=True)
-    using_model: Mapped[str] = mapped_column(String(64),default="gemini-2.0-flash")
+    using_model: Mapped[str] = mapped_column(String(64),default="gemini-2.5-flash-lite")
     chat_count: Mapped[int] = mapped_column(Integer,default=0)
     api_secret: Mapped[Optional[str]] = mapped_column(String(128),default=None)
     create_at: Mapped[datetime] = mapped_column(server_default=func.now())
@@ -109,7 +109,7 @@ class ChatUser():
         self.discord_user: User = discord_user
         self.instrucion=f"""
 # Role
-你是一個整合在 Discord 平台上的專業 AI 助手。你的mention為 <#1406320447343296542>。
+你是福爾摩沙Tier List Database 機器人，是社群玩家們的AI小幫手，可以聊天，也可以幫社群玩家回答關於Tier List的問題。你的mention為 <#1406320447343296542>。
 # Basic Context (靜態資料交互規範)
 你必須根據以下提供的「當前環境資訊」來調整你的回答，這些資訊是實時更新的：
 - 當前時間：{datetime.now().strftime("%Y-%m-%d %H:%M:%S")} (請注意時區為 UTC+8)
@@ -159,6 +159,10 @@ class ChatUser():
         self.data.api_secret=encrypt_api_key(api_key)
         await self.session.flush()
         
+    async def remove_api(self):
+        self.data.api_secret=None
+        await self.session.flush()
+        
     @property
     def api_key(self):
         return decrypt_api_key(self.data.api_secret)
@@ -201,7 +205,7 @@ class ChatUser():
             using_self_api=False
         context=self.query_knowledge_base(content)
         if context:
-            final_instruction=self.instrucion+"\n#Retrieval Context\n"+context
+            final_instruction=self.instrucion+"\n#Retrieval Context (請整理以下資料並整理推析)\n"+context
         else:
             final_instruction=self.instrucion
         chat:genai.chats.AsyncChat= client.aio.chats.create(model=self.data.using_model)
@@ -320,14 +324,43 @@ async def get_token_remaining(interaction:Interaction):
             return
         
 async def set_gemini_api_key(interaction:Interaction,api_key:str):
-    user_id=interaction.user.id
+    user=interaction.user
     async with async_session() as session:
         async with session.begin():
-            chatuser=ChatUser(session,user_id)
+            chatuser=ChatUser(session,user)
             await chatuser.load()
             await chatuser.set_api(api_key)
-            await interaction.followup.send("✅ API Key 設置成功",ephemeral=True)
+            await interaction.followup.send("✅ API Key 設置成功，您可以無限制使用AI服務。\n-# 請注意，API為隱私資訊，請妥善保管，不要透露給任何人，在資料庫安全之情況下，我們不負API被盜用之責任，如果您的Discord帳號被盜用，請聯繫開發者。",ephemeral=True)
+            return
+
+async def remove_gemini_api_key(interaction:Interaction):
+    user=interaction.user
+    async with async_session() as session:
+        async with session.begin():
+            chatuser=ChatUser(session,user)
+            await chatuser.load()
+            await chatuser.remove_api()
+            await interaction.followup.send("✅ API Key 移除成功",ephemeral=True)
             return
         
-    
+async def chatuser_info(interaction:Interaction):
+    user=interaction.user
+    async with async_session() as session:
+        async with session.begin():
+            chatuser=ChatUser(session,user)
+            await chatuser.load()
+            embed=Embed(
+                title = f"{interaction.user.global_name} 的AI服務使用者個人資料",
+                color=Colour.green()
+            )
+            embed.set_thumbnail(url=user.display_avatar.url)
+            embed.add_field(name="剩餘權杖",value=f"{chatuser.data.token_remaining:.2f}",inline=True)
+            embed.add_field(name="API Key",value=f"{'✅已設置' if chatuser.data.api_secret else '❌未設置'}",inline=True)
+            embed.add_field(name="允許提及回應",value='✅允許' if chatuser.data.enable_reply else '❌不允許',inline=True)
+            embed.add_field(name="使用Gemini模型",value=chatuser.data.using_model,inline=True)
+            embed.add_field(name="使用AI服務次數",value=f"{chatuser.data.chat_count} 次",inline=True)
+            embed.set_footer(text=datetime.now().strftime("%Y年%m月%d日 %H:%M:%S"),icon_url=user.display_avatar.url)
+            await interaction.followup.send(embed=embed)
+            return
+
 asyncio.run(init_db())

@@ -19,7 +19,7 @@ import json
 from discord.ui import Button, View
 import re
 from config import *
-from chatbot import chat_via_interaction,chat_via_mention
+from chatbot import chat_via_interaction,chat_via_mention,set_gemini_api_key,remove_gemini_api_key,chatuser_info
 import asyncio
 
 
@@ -1089,6 +1089,23 @@ async def manual_link(interaction: Interaction,player_or_uuid:str,discord_user:M
     await interaction.followup.send(content="操作成功。",ephemeral=True)
     return 
         
+        
+@app_commands.checks.cooldown(1, 14400, key=lambda i: i.user.id)
+@bot.tree.command(name="custom_gemini_api", description="自訂 Gemini API，請注意，為了資訊安全考量，本指令冷卻時間為4小時")
+async def custom_api(interaction:Interaction,api_key:str):
+    await interaction.response.defer(ephemeral=True)
+    await set_gemini_api_key(interaction,api_key)
+    return
+    
+@app_commands.checks.cooldown(1, 14400, key=lambda i: i.user.id)
+@bot.tree.command(name="remove_gemini_api", description="移除 Gemini API，請注意，為了資訊安全考量，本指令冷卻時間為4小時")
+async def remove_custom_api(interaction:Interaction):
+    await interaction.response.defer(ephemeral=True)
+    await remove_gemini_api_key(interaction)
+    return
+
+
+    
 ### GUILD LIMITED COMMAND ###
 
 
@@ -1099,8 +1116,13 @@ async def ai_chat(interaction: Interaction,text:str):
     await interaction.response.defer()
     await chat_via_interaction(interaction,text)
     
+@app_commands.checks.cooldown(1, 20, key=lambda i: i.user.id)
+@bot.tree.command(name="ai_chat_user_profile", description="查詢AI服務使用者個人資料")
+@app_commands.guilds(DEV_GUILD)
+async def ai_user_profile(interaction: Interaction):
+    await interaction.response.defer()
+    await chatuser_info(interaction)
     
-       
 ### MENU COMMAND ###      
         
 @app_commands.checks.cooldown(1, 5, key=lambda i: i.user.id)
@@ -1258,7 +1280,7 @@ async def on_tree_error(interaction: Interaction, error: app_commands.AppCommand
         else:
             channel_name=interaction.channel.name #type:ignore
         user_embed=Embed(colour=Colour.red(),title="⚠️ 發生未知錯誤", description="錯誤報告已經回報給開發者")
-        await send(embed=user_embed,ephemeral=True,delete_after=5)
+        await send(embed=user_embed,ephemeral=True)
         await dm.send(embed=Embed(colour=Colour.red(),title="⚠️ 錯誤報告", description="```"+str(error.with_traceback(error.__traceback__))+"```"+f"\n時間: {datetime.datetime.now().isoformat()}\n伺服器: {guild_name} ({guild_id}) \n頻道: {channel_name} ({interaction.channel_id})\n使用者: {interaction.user.name} ({interaction.user.id}) \n指令: {interaction.command.name}\n參數: \n{params_str}".replace("_","\_"))) #type:ignore
         
 
