@@ -1,0 +1,7 @@
+400=API Key 無效
+429=您的API Key為免費方案，已耗盡可使用的次數(這不是我們的問題，如果您想要繼續使用AI服務，請先將API Key移除，或者是購買Google Cloud API付費方案)
+500=預設API死了。
+3=Request Too Frequently (短時間內操作太過於頻繁，請稍後再試)
+2=Not Enough Tokens (剩餘權杖不足最低使用需求)
+600=Null Value Exception
+999=Unknown Exception

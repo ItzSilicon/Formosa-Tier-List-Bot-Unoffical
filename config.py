@@ -18,6 +18,11 @@ class CommandException(AppCommandError):
         super().__init__(message)
         self.solution = solution
 
+def get_error_code(code:int):
+    with open("error_codes","r",encoding='utf-8') as f:
+        data=f.read()
+    error_code_list={int(x.split("=")[0]):x.split("=")[1] for x in data.split("\n")}
+    return f"```{error_code_list.get(code)}```"
 
 def get_link_help_embeds():
     # 1. 定義圖片檔案 (假設檔案在同級目錄下)
@@ -139,6 +144,9 @@ def verify_hypixel_discord(api_key, uuid, discord_tag):
 def today() -> str:
     return datetime.date.today().isoformat()
 
+async def check_ephemeral(interaction: Interaction):
+    # 取得剛才發出的回應訊息
+    return False
 
 async def check_link(interaction:Interaction) -> str:
     link_info=None
@@ -196,6 +204,7 @@ render=["default",
 intents = Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents,owner_id=1110595121591898132)
 intents.message_content = True # 必須明確開啟
+intents.members = True
 
 def get_bot_user() -> User:
     return bot.user
@@ -207,12 +216,29 @@ async def owner_user() -> User:
 
 
 DEV_GUILD= DiscordObject(id=990378958501584916)
+# DEV_GUILD2= DiscordObject(id=1208000802946416640)
 
 async def setup_hook():
     try:
         synced = await bot.tree.sync()
         guild_synced = await bot.tree.sync(guild=DEV_GUILD)
+        # guild_synced2 = await bot.tree.sync(guild=DEV_GUILD2)
         logging.info(f"🔄 已同步 {len(synced)} 個斜線指令")
-        logging.info(f"🔄 伺服器已同步 {len(guild_synced)} 個斜線指令")
+        logging.info(f"🔄 A伺服器已同步 {len(guild_synced)} 個斜線指令")
+        # logging.info(f"🔄 B伺服器已同步 {len(guild_synced2)} 個斜線指令")
     except Exception as e:
         logging.error(f"❌ 同步指令失敗: {e}")
+        
+        
+def command_execute_log_warpper(func,local: dict):
+    logging.info(f"\nCommand {func.name} is executed by {local['interaction'].user.mention} ({local['interaction'].user.global_name})\nFull parameters:\n{"\n".join([f"{x} = {y}" for x,y in local.items()])}")
+    
+
+ticket_cate={
+    1150356770129190972:1,
+    1150357639071539241:3,
+    1150357441125560380:4,
+    1150357731493023775:7,
+    1176825057151033405:9,
+    1150357335617835038:5
+}

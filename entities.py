@@ -4,12 +4,13 @@ import os
 import datetime
 from stat_method import fetch_core_rank,fetch_overall_rank
 from discord.app_commands import AppCommandError
-from typing import Union, List, Any
+from typing import Union, List, Any,Optional
 import re
 from functools import cached_property
 from pathlib import Path
 import shutil
 import logging
+from pandas import DataFrame
 db_path="./tier_list_latest.db"
 
 
@@ -17,6 +18,7 @@ db_path="./tier_list_latest.db"
 class EntityException(AppCommandError):
     def __init__(self,message,solution=None):
         super().__init__(message)
+        self.message= message
         self.solution = solution
         
         
@@ -78,6 +80,66 @@ def query(script: str, param: Union[tuple, dict] = None, do_format: bool = True,
     else:
         if do_format:
             return r[0][0] if len(r[0]) == 1 else r[0]
+        return r
+
+def query_to_dataframe(script: str, param: Union[tuple, dict] = None, do_format: bool = True, do_commit: bool = False) -> Optional[DataFrame | dict]:
+    r = None
+    retry_count = 3
+    delay = 0.5
+
+    for attempt in range(retry_count):
+        try:
+            # 使用 context manager 自動處理 commit/rollback
+            with new_conn() as conn:
+                cursor = conn.cursor()
+                
+                if param:
+                    cursor.execute(script, param)
+                else:
+                    cursor.execute(script)
+                
+                # 如果是寫入操作且需要 commit
+                if do_commit:
+                    conn.commit()
+                    return None
+                
+                # 獲取結果
+                rows = cursor.fetchall()
+                # 將 sqlite3.Row 轉回 tuple 以保持與原邏輯相容 (最小衝擊)
+                if rows:
+                    # print(f"rows: {rows}")
+                    col=[col[0] for col in cursor.description]
+                    r = DataFrame(rows, columns=col)
+                    # print(f"r: {r}")
+                else:
+                    return None
+            break # 成功則跳出重試迴圈
+
+
+        except sqlite3.OperationalError as e:
+            if "database is locked" in str(e).lower() and attempt < retry_count - 1:
+                time.sleep(delay * (attempt + 1)) # 指數退避
+                continue
+            raise e # 其他錯誤或重試耗盡則拋出
+        except Exception as e:
+            raise e
+        finally:
+            conn.close()
+    
+    # print(r)
+    # --- 以下保持你原有的回傳格式化邏輯 (Do format) ---
+    if r.empty:
+        return None
+
+    if len(r.columns) >1:
+        if do_format:
+            # 檢查是否所有 row 都只有一個元素
+            if len(r) == 1:
+                return {x:r[x][0] for x in r.columns}
+        return r
+    else:
+        if do_format:
+            return r[r.columns[0]][0] if len(r)==1 else r[r.columns[0]]
         return r
 
 
@@ -168,7 +230,10 @@ class Player:
             self._conn=new_conn()
             self._cursor=self._conn.cursor()
             self.extra_info=[]
-            
+            self.is_famous=False
+            self.is_banned=False
+            self.name=None
+            self.uuid=None
             ### 輸入確認 ###
             
             if len(input)==32:
@@ -179,13 +244,13 @@ class Player:
                 self.name=self.db_name or "Unknown Player"
             elif len(input)<=16:
                 if not re.match(r"^\w{1,16}$", input):
-                    raise EntityException("Bad name format | 錯誤的玩家名稱格式","請確認輸入欄位是否為正確的玩家名稱")
+                    raise EntityException("錯誤的玩家名稱格式","請確認輸入欄位是否為正確的玩家名稱")
                 self.uuid,self.name=Player.get_uuid(input)
             else:
-                raise EntityException("Bad input, uuid or player name is required. | 錯誤的參數，必須為uuid或玩家名稱","請輸入正確格式的玩家名稱或uuid")
+                raise EntityException("錯誤的參數，必須為uuid或玩家名稱","請輸入正確格式的玩家名稱或uuid")
             
             if self.uuid.startswith("#unknown"):
-                self.extra_info.append("The infomation about this player is not traceable. |  該玩家的資料已經不可考")
+                self.extra_info.append("該玩家的資料已經不可考")
 
             
             ###更新資料###
@@ -202,7 +267,7 @@ class Player:
                     self._cursor.execute("UPDATE players SET player=? WHERE uuid=?",(self.name,self.uuid))
                 
             self.ban_id,self.ban_reason,self.ban_effective,self.ban_expired=self.check_ban()
-            self.is_banned = bool(self.ban_id and str(self.ban_id).strip())
+            self.is_banned = self.ban_id is not None
             
             res=self._cursor.execute("SELECT intro,is_famous,nickname,examiner_id FROM players WHERE uuid=?",(self.uuid,)).fetchone()
             
@@ -214,7 +279,7 @@ class Player:
             if self.is_banned:
                 eff = self.ban_effective if self.ban_effective != "0" else "未知"
                 exp = self.ban_expired if self.ban_expired != "0" else "永久"
-                self.extra_info.append(f"This player has been banned. | 該玩家已經被封鎖，ID:`{self.ban_id}`，原因:{self.ban_reason}，生效於`{eff}`持續至`{exp}`")
+                self.extra_info.append(f"該玩家已經被列入封鎖，ID:`{self.ban_id}`，原因:{self.ban_reason}，生效於`{eff}`持續至`{exp}`")
                 
             for i in range(len(self.extra_info)):
                 self.extra_info[i]="ⓘ "+self.extra_info[i]
@@ -233,10 +298,13 @@ class Player:
                 "tier_data":self.tier_dict
             }
             
-
+        except EntityException as e:
+            logging.error(f"Expected Exception: {e.message}")
+            raise EntityException("Minecraft Player 初始化發生錯誤",f"**{e.message}**"+"\n"+e.solution)
         except Exception as e:
+            raise EntityException(f"發生未知錯誤:\n{e}")
+        finally:
             self._conn.close()
-            raise EntityException(f"發生未知錯誤:\n```{e}```")
         
     @property
     def overall_points(self):
@@ -357,9 +425,17 @@ class Player:
         else:
             return None,None,None,None
         
-    def update_tier(self,mode_id,tier_id,is_retired=False):
+    def update_tier(self,mode:Union[int,str],tier:Union[int,str],is_retired=False):
         # TODO: 實作「歷史紀錄表 (tier_history)」：每次變更時自動備份舊數據，以便追蹤進度曲線
         # TODO: 變更成功後發送一個信號 (Signal)，讓 bot.py 可以捕捉並自動更新 Discord 身分組
+        if type(mode) == str:
+            mode_id:int=query(f"SELECT mode_id FROM mode WHERE short = ?",(mode,))
+        else:
+            mode_id=mode
+        if type(tier) == str:
+            tier_id:int=query(f"SELECT tier_id FROM tier_table WHERE short = ?",(tier,))
+        else:
+            tier_id=tier
         if is_retired:
             is_retired=1
         else:
@@ -387,20 +463,20 @@ class Player:
         }
     
     
-    def get_tier(self,mode_id_or_name:str):
-        if mode_id_or_name.isnumeric:
-            if mode_id_or_name in query("SELECT mode_id FROM mode"):
-                tmp=query("SELECT tier_id,tier FROM tier_list_data WHERE uuid = ? AND mode_id = ?",(self.uuid,mode_id_or_name))
-            else:
-                tmp=None
+    def get_tier(self,mode_id_or_name:str,return_short=True):
+        if mode_id_or_name in query("SELECT mode_id FROM mode"):
+            tmp=query("SELECT tier_id,tier FROM tier_list_data WHERE uuid = ? AND mode_id = ?",(self.uuid,mode_id_or_name))
         elif mode_id_or_name in query("SELECT short FROM mode"):
             tmp=query("SELECT tier_id,tier FROM tier_list_data WHERE uuid = ? AND mode = ?",(self.uuid,mode_id_or_name))
         else:
             raise ValueError(mode_id_or_name)
         if tmp:
-            return tmp
+            if return_short:
+                return tmp[1]
+            else:
+                return tmp[0]
         else:
-            return None,None
+            return None
     
     @staticmethod
     def get_name(uuid):
@@ -409,14 +485,14 @@ class Player:
         try:
             response=requests.get(f"https://api.minecraftservices.com/minecraft/profile/lookup/{uuid}",timeout=(5,10))
         except requests.exceptions.Timeout:
-            raise EntityException("Request timed out. | 與 Minecraft Services API 請求逾時","請聯繫開發者(lxtw)了解詳情")
+            raise EntityException("與 Minecraft Services API 請求逾時","請聯繫開發者(lxtw)了解詳情")
         if response.status_code == 200:
             name=response.json()["name"]
             return name
         elif response.status_code == 404:
-            raise EntityException("Player is not found. | 找無此玩家","請確認uuid是否完全正確")
+            raise EntityException("找無此玩家","請確認uuid是否完全正確")
         else:
-            raise Exception(f"Unexcepted error occurs. | 未預期的錯誤 : {response.status_code}")
+            raise Exception(f" 未預期的錯誤 : {response.status_code}")
 
     @staticmethod
     def get_uuid(name):
@@ -425,27 +501,38 @@ class Player:
         try:
             response=requests.get(f"https://api.mojang.com/users/profiles/minecraft/{name}",timeout=(5,10))
         except requests.exceptions.Timeout:
-            raise EntityException("Request timed out. | 與 Minecraft Services API 請求逾時","請聯繫開發者(lxtw)了解詳情")
+            raise EntityException("與 Minecraft Services API 請求逾時","請聯繫開發者(lxtw)了解詳情")
         if response.status_code == 200:
             uuid=response.json()["id"]
             real_name=response.json()["name"]
+            logging.info(f"Find Minecraft Account : {real_name} ({uuid})")
             return uuid.strip("-"),real_name
         elif response.status_code == 404:
+            logging.info("Player not found via Minecraft Services API")
             with sqlite3.connect(db_path) as conn:
                 cursor=conn.cursor()
                 cursor.execute("SELECT uuid FROM players WHERE player = ?",(name,))
                 queuy=cursor.fetchall()
             if len(queuy) == 1:
                 uuid_temp=queuy[0][0]
-                return uuid_temp,Player.get_name(uuid_temp)
+                logging.info("Player found via local database")
+                real_name = Player.get_name(uuid_temp)
+                if real_name:
+                    logging.info(f"Find Minecraft Account : {real_name} ({uuid_temp})")
+                    return uuid_temp,real_name
+                else:
+                    logging.warning(f"Player {name} is not available")
+                    raise EntityException("找無此玩家","請確認玩家名稱是否正確並存在")
             elif len(queuy) > 1:
-                raise EntityException("Too many players to determined. | 無法確認玩家身分：太多結果","請聯繫開發者(lxtw)")
+                logging.info("Too many results")
+                raise EntityException("無法確認玩家身分：太多結果","請聯繫開發者(lxtw)")
             else:
-                raise EntityException("Player is not found. | 找無此玩家","請確認玩家名稱是否正確並存在")
+                logging.warning(f"Player {name} is invalid (Not exist)")
+                raise EntityException("找無此玩家","請確認玩家名稱是否正確並存在")
         elif response.status_code == 429:
             raise EntityException("太多次請求","請稍後再試")
         else:
-            raise Exception(f"Unexcepted error occurs. | 未預期的錯誤 : {response.status_code}")
+            raise EntityException(f"未預期的錯誤 : {response.status_code}")
 
     @staticmethod
     def get_db_name(uuid):
