@@ -121,38 +121,48 @@ async def on_message(message:Message):
                             player=Player(name)
                         except Exception as e:
                             logging.exception(e)
-                            embed.add_field(name="❌ 受試者提供的Minecraft帳號無法辨識或不存在",value="請考官進一步向受試者索取詳細資料",inline=False)
+                            embed.add_field(name="❌ 受試者提供的Minecraft玩家名稱無法辨識或不存在",value="請考官進一步向受試者索取詳細資料",inline=False)
                             embed.colour=Colour.dark_gray()
                             await dm.send(embed=embed)
                             await outer_channel.send(embed=embed)
                             return
                         embed.add_field(name="名稱",value=player.name,inline=False)
-                        embed.add_field(name="該帳號連結之Discord帳號",value=f"<@{player.discord_user_id}>" if player.discord_user_id else "未連結",inline=False)
+                        embed.add_field(name="UUID",value=f'`{player.uuid}`',inline=False)
+                        embed.add_field(name="連結Discord帳號",value=f"<@{player.discord_user_id}>" if player.discord_user_id else "未連結",inline=False)
                         embed.add_field(name="報考項目",value=mode,inline=False)
-                        embed.add_field(name="封禁",value="是" if player.is_banned else "否",inline=False)
+                        embed.add_field(name="封禁",value="是" if player.is_banned else "否",inline=True)
                         mode_id=str(mode_id)
                         tier=player.get_tier(mode_id)
-                        embed.add_field(name="目前Tier",value=tier if tier else "無",inline=False)
-                        last_test_date=data_query("SELECT test_date FROM tests WHERE examinee=? AND mode_id = ? ORDER BY test_date DESC LIMIT 1",(player.uuid,mode_id))
-                        if last_test_date:
+                        embed.add_field(name="目前Tier",value=tier if tier else "無",inline=True)
+                        last_test=data_query("SELECT examiner,examinee_grade,examiner_grade,test_date FROM tests WHERE examinee=? AND mode_id = ? ORDER BY test_date DESC LIMIT 1",(player.uuid,mode_id))
+                        if last_test:
+                            logging.info(f"Last test: {last_test}")
+                            examiner,examinee_grade,examiner_grade,last_test_date=last_test
                             last_test_date=datetime.datetime.fromisoformat(last_test_date)
                             now=datetime.datetime.now()
                             days=(now-last_test_date).days
-                            embed.add_field(name="距離上次考試天數",value=days,inline=False)
+                            logging.info(f"Passed Days: {days}")
+                            last_examiner=Player(examiner).name
+                            embed.add_field(name="上次考試",value=f"{days}天前\n**{player.name}** {examinee_grade}:{examiner_grade} {last_examiner}",inline=False)
                         else:
+                            logging.info("No last test")
                             days=65535
-                            embed.add_field(name="距離上次考試天數",value="未考試過",inline=False)
+                            examinee_grade=examiner_grade=None
+                            embed.add_field(name="上次考試",value="未考試過",inline=True)
                         error=[]
                         warning=[]
                         info=[]
                         tier_id=player.get_tier(mode_id,False)
-                        if tier_id:
-                            if int(tier_id)>22 and days<=21:
-                                error.append(f"❌ 21天考試冷卻期間，剩餘{21-days}天")
-                            elif int(tier_id)<=22 and days<=30:
-                                error.append(f"❌ 高階30天考試冷卻期間，剩餘{30-days}天")
+                        if tier_id and last_test :
+                            if examinee_grade>examiner_grade and examiner_grade/examinee_grade<=0.8 and days<=30:
+                                info.append(f"ℹ️ 上次考試該受試者以 {examinee_grade}:{examiner_grade} 擊敗考官，可無視冷卻續考更高階級")
                             else:
-                                info.append(f"✅ 考試冷卻期間已過")
+                                if int(tier_id)>22 and days<=21:
+                                    error.append(f"❌ 21天考試冷卻期間，剩餘{21-days}天")
+                                elif int(tier_id)<=22 and days<=30:
+                                    error.append(f"❌ 高階30天考試冷卻期間，剩餘{30-days}天")
+                                else:
+                                    info.append(f"✅ 考試冷卻期間已過")
                         else:
                             info.append("✅ 無考試紀錄")
                         
@@ -176,15 +186,24 @@ async def on_message(message:Message):
                                         info.append("ℹ️ 帳號未開設滿一年")
                                     info.append("✅ 開單的Discord帳號與Minecraft帳號連結的Discord帳號相符")
                             else:
-                                if create_date>(time_utc-datetime.timedelta(days=365)):
+                                if create_date>(time_utc-datetime.timedelta(days=30)):
+                                    warning.append("⚠️ 帳號未開設滿一個月")
+                                elif create_date>(time_utc-datetime.timedelta(days=365)):
                                     info.append("ℹ️ 帳號未開設滿一年")
+                            
 
-                        for x in ("臺","台","台灣","臺灣","TW","Taiwan","tai","TAI"):
+
+                        for x in ("臺","台","台灣","臺灣","TW","Taiwan","tai","TAI","新北","桃園","基隆","中壢","新竹","苗栗","彰化","南投","雲林","嘉義","屏東","宜蘭","花蓮","澎湖","金門","馬祖"): #媽的，你們可不可以好好填台灣就好
                             if x.lower() in area.lower():
-                                info.append(f"✅ 玩家所在地區為台灣")
+                                info.append(f"✅ 使用者所在地區為台灣")
                                 break
                         else:
-                            warning.append(f"⚠️ 玩家所在地區不為台灣\n(⚠️ The region which the player is located in is **NOT** Taiwan)")
+                            for x in ("亞洲","亞","Asia","AS","華","中國"):
+                                if x.lower() in area.lower():
+                                    info.warning(f"⚠️ 玩家填寫地區為亞洲或中國(中華民國)，無法確認是否為台灣地區，請考官協助進一步確認身分。\n**(如果您是台灣的玩家，請考試者下次填寫問題時，只要在地區欄位填寫台灣即可，勿填寫亞洲或中國，以免影響考官作業，感謝您的配合!)**\n(⚠️ The region player filled in is Asia or China (considered as Republic of China) which is ambiguous to confirm your identity. The examiner will ask further information to check your region )" )
+                                    break
+                            else:
+                                warning.append(f"⚠️ 玩家所在地區不為台灣\n(⚠️ The region which the player is located in is **NOT** Taiwan)，請考官協助進一步確認身分。")
                         
                         
                         if error:

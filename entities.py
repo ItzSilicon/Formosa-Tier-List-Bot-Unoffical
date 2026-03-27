@@ -394,12 +394,10 @@ class Player:
 
 
         try:
-            self._cursor.execute("INSERT INTO ban_list (ban_id,banned_player_uuid,reason,effect_date,expired_date) VALUES(?,?,?,?,?)",(ban_id,self.uuid,reason,effect_date,expired_date))
-            self._conn.commit()
+            query("INSERT INTO ban_list (ban_id,banned_player_uuid,reason,effect_date,expired_date) VALUES(?,?,?,?,?)",(ban_id,self.uuid,reason,effect_date,expired_date),do_commit=True)
         except sqlite3.IntegrityError as e:
             raise EntityException("This Ban ID already exists.","請不要輸入重複的Ban ID")
-        self._cursor.execute("UPDATE players SET ban_id = ? WHERE uuid = ?",(ban_id,self.uuid))
-        self._conn.commit()
+        query("UPDATE players SET ban_id = ? WHERE uuid = ?",(ban_id,self.uuid),do_commit=True)
         eff = effect_date if effect_date != "0" else "未知"
         exp = expired_date if expired_date != "0" else "永久"
         return ban_id,eff,exp

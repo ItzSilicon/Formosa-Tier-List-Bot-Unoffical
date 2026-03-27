@@ -231,7 +231,8 @@ async def setup_hook():
         
         
 def command_execute_log_warpper(func,local: dict):
-    logging.info(f"\nCommand {func.name} is executed by {local['interaction'].user.mention} ({local['interaction'].user.global_name})\nFull parameters:\n{"\n".join([f"{x} = {y}" for x,y in local.items()])}")
+
+    logging.info(f"\nCommand {func.name} is executed by {local['interaction'].user.mention if local.get('interaction') else None} ({local['interaction'].user.global_name if local.get('interaction') else None})\nFull parameters:\n{"\n".join([f"{x} = {y}" for x,y in local.items()])}")
     
 
 ticket_cate={
