@@ -200,7 +200,7 @@ async def on_message(message:Message):
                         else:
                             for x in ("亞洲","亞","Asia","AS","華","中國"):
                                 if x.lower() in area.lower():
-                                    info.warning(f"⚠️ 玩家填寫地區為亞洲或中國(中華民國)，無法確認是否為台灣地區，請考官協助進一步確認身分。\n**(如果您是台灣的玩家，請考試者下次填寫問題時，只要在地區欄位填寫台灣即可，勿填寫亞洲或中國，以免影響考官作業，感謝您的配合!)**\n(⚠️ The region player filled in is Asia or China (considered as Republic of China) which is ambiguous to confirm your identity. The examiner will ask further information to check your region )" )
+                                    warning.append(f"⚠️ 玩家填寫地區為亞洲或中國(中華民國)，無法確認是否為台灣地區，請考官協助進一步確認身分。\n**(如果您是台灣的玩家，請考試者下次填寫問題時，只要在地區欄位填寫台灣即可，勿填寫亞洲或中國，以免影響考官作業，感謝您的配合!)**\n(⚠️ The region player filled in is Asia or China (considered as Republic of China) which is ambiguous to confirm your identity. The examiner will ask further information to check your region )" )
                                     break
                             else:
                                 warning.append(f"⚠️ 玩家所在地區不為台灣\n(⚠️ The region which the player is located in is **NOT** Taiwan)，請考官協助進一步確認身分。")
@@ -730,14 +730,24 @@ async def add_test_record(interaction:Interaction, examinee:str, mode:Choice[int
         old_tier_name=orginal_tier.name
         
     date_list=date.split("-")
-    ym=str(date_list[0])+str(date_list[1])
+    
+    ym=str(date_list[0][-2:])+str(hex(int((date_list[1]))))[-1]
     if input_test_id == "Default" or input_test_id.startswith("COMMIT:"):
+        logging.info(f"Auto create test id")
         last_id = data_query(f"SELECT test_id FROM tests WHERE test_id LIKE 'T{ym}%' ORDER BY test_id DESC LIMIT 1")
         if last_id:
-            sub_id=str(int(last_id[-3:])+1)
-            test_id="T"+ym+sub_id.zfill(3)
+            
+            tens=int("0x"+last_id[-2:-1],16)
+            logging.info(f"{tens=}")
+            sub_id=str(tens*10+int(last_id[-1])+1).zfill(2)
+            logging.info(f"{sub_id=}")
+            if int(sub_id) > 159:
+                raise CommandException("Test ID is full","考試ID已經用完 (Max: 159)")
+            tens=str(hex(int(sub_id[:-1])))[-1]
+            sub_id=tens+sub_id[-1]
+            test_id="T"+ym+sub_id
         else:
-            test_id="T"+ym+"001"
+            test_id="T"+ym+"01"
     else:
         if input_test_id.startswith("COMMIT:"):
             raise CommandException("Costomized test ID is not supported in COMMIT mode",)
